@@ -209,13 +209,17 @@ jobs:
           - android: '16'
             api: 36
             image: '36'
+            target: google_apis
             url: http://10.0.2.2:3000
           # On Android 17 that's a local network address, which exercises the local
           # network permission prompt. Its SDK packages carry a minor version, such
           # as platforms;android-37.0.
+          # The Google APIs image restarted its system services right after boot on
+          # every run, so Android 17 uses the lighter image made for automated tests.
           - android: '17'
             api: '37.0'
             image: '37.0'
+            target: google_atd
             url: http://10.0.2.2:3000
     services:
       postgres:
@@ -256,9 +260,11 @@ jobs:
         with:
           api-level: ${{ matrix.api }}
           system-image-api-level: ${{ matrix.image }}
-          target: google_apis
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_7
+          cores: 3
+          ram-size: 4096M
           # The default data partition is too small for Android 17 to install anything.
           disk-size: 6G
           disable-animations: true
