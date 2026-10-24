@@ -65,12 +65,14 @@ import dev.fl1nt.ember.ui.onboarding.DOCS_URL
 import dev.fl1nt.ember.ui.sync.fetchFolders
 import dev.fl1nt.ember.ui.theme.ThemeMode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class SettingsState(
     val account: Account? = null,
@@ -108,7 +110,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             // No client while connected means the token can't be read, which Home already explains.
             val client = container.connection.client() ?: throw FlareException.Unauthorized()
             val capabilities = try {
-                client.probeCapabilities()
+                withContext(Dispatchers.IO) { client.probeCapabilities() }
             } catch (refused: FlareException.Unauthorized) {
                 container.accounts.reportProblem(AccountProblem.TOKEN_REJECTED)
                 throw refused

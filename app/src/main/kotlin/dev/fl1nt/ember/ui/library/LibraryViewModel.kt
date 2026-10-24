@@ -11,6 +11,7 @@ import dev.fl1nt.ember.data.db.ShortLinkEntity
 import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.system.describeError
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class LibraryTab { RECENT, FILES, LINKS }
 
@@ -94,7 +96,10 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         pageJob = viewModelScope.launch {
             try {
                 val client = container.connection.client() ?: throw FlareException.Unauthorized()
-                val page = client.listFiles(FileQuery(page = current.page + 1, limit = PAGE_SIZE, search = current.query.ifBlank { null }))
+                // The client reads responses on the calling thread, which mustn't be the main one.
+                val page = withContext(Dispatchers.IO) {
+                    client.listFiles(FileQuery(page = current.page + 1, limit = PAGE_SIZE, search = current.query.ifBlank { null }))
+                }
                 files.update {
                     it.copy(
                         items = it.items + page.files,

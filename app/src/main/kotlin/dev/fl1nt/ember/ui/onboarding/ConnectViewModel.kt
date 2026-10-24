@@ -14,11 +14,13 @@ import dev.fl1nt.ember.system.LocalAddresses
 import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.work.Attention
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ConnectState(
     val address: String = "",
@@ -113,7 +115,7 @@ class ConnectViewModel(
                 return@launch
             }
             try {
-                val capabilities = container.connection.clientFor(origin, credential).probeCapabilities()
+                val capabilities = withContext(Dispatchers.IO) { container.connection.clientFor(origin, credential).probeCapabilities() }
                 if (!capabilities.uploadFiles.isGranted) {
                     val message = when (capabilities.uploadFiles) {
                         Access.DENIED_BY_ROLE -> R.string.connect_error_upload_role

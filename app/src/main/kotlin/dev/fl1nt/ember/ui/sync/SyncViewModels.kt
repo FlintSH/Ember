@@ -20,6 +20,7 @@ import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.ui.attempt
 import dev.fl1nt.ember.ui.components.FolderChoices
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class SourceSummary(val source: SyncSourceEntity, val counts: LedgerCounts)
 
@@ -249,7 +251,9 @@ class SourceDetailViewModel(private val container: AppContainer, private val id:
 suspend fun fetchFolders(container: AppContainer): FolderChoices {
     val account = container.accounts.current() ?: return FolderChoices.NotPermitted
     if (account.capabilities.listFolders.isDenied) return FolderChoices.NotPermitted
-    return attempt { container.connection.client()?.listFolders() ?: throw FlareException.Unauthorized() }.fold(
+    return attempt {
+        withContext(Dispatchers.IO) { container.connection.client()?.listFolders() ?: throw FlareException.Unauthorized() }
+    }.fold(
         onSuccess = { FolderChoices.Loaded(it) },
         onFailure = { error ->
             // An unknown answer at connect time can turn out to mean "not allowed".
