@@ -3,6 +3,7 @@ package dev.fl1nt.ember.api
 import dev.fl1nt.ember.api.internal.PartBody
 import dev.fl1nt.ember.api.internal.StreamingBody
 import dev.fl1nt.ember.api.internal.await
+import dev.fl1nt.ember.api.internal.fileDisposition
 import dev.fl1nt.ember.api.internal.readFully
 import dev.fl1nt.ember.api.internal.readUpTo
 import kotlinx.coroutines.async
@@ -12,6 +13,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -176,7 +178,8 @@ class FlareClient(
     ): UploadedFile {
         val form = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
             options.formFields().forEach { (name, value) -> addFormDataPart(name, value) }
-            addFormDataPart("file", fileName, StreamingBody(stream, mimeType.toMediaType(), size, progress))
+            val disposition = Headers.headersOf("Content-Disposition", fileDisposition("file", fileName))
+            addPart(disposition, StreamingBody(stream, mimeType.toMediaType(), size, progress))
         }.build()
         val builder = request("/api/files").post(form)
         options.selectionHeaders().forEach { (name, value) -> builder.header(name, value) }

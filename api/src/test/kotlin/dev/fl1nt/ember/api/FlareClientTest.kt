@@ -207,6 +207,22 @@ class FlareClientTest {
     }
 
     @Test
+    fun `writes names that aren't plain ASCII as an RFC 5987 filename`() = runTest {
+        server.enqueue(json(200, uploadResponse))
+        server.enqueue(json(200, uploadResponse))
+        client().upload(BytesUploadSource("café ✓ 日本.txt", "hi".toByteArray(), "text/plain"))
+        client().upload(BytesUploadSource("say \"hi\".txt", "hi".toByteArray(), "text/plain"))
+
+        assertThat(server.takeRequest().body!!.utf8()).contains(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"cafe _ __.txt\"; " +
+                "filename*=UTF-8''caf%C3%A9%20%E2%9C%93%20%E6%97%A5%E6%9C%AC.txt\r\nContent-Type: text/plain",
+        )
+        assertThat(server.takeRequest().body!!.utf8()).contains(
+            "filename=\"say _hi_.txt\"; filename*=UTF-8''say%20%22hi%22.txt\r\n",
+        )
+    }
+
+    @Test
     fun `maps Flare errors to typed exceptions with server messages`() = runTest {
         suspend fun failure(response: MockResponse): FlareException {
             server.enqueue(response)

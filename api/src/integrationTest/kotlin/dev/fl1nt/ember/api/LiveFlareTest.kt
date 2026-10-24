@@ -154,6 +154,22 @@ class LiveFlareTest {
     }
 
     @Test
+    fun `keeps names that aren't plain ASCII`() = runBlocking {
+        val client = client(fixture.tokens.all)
+        val single = "ember-it-${UUID.randomUUID().toString().take(8)} café ✓ 日本.txt"
+        assertThat(client.upload(BytesUploadSource(single, "hi\n".toByteArray(), "text/plain")).name).isEqualTo(single)
+        assertThat(findByName(client, single)?.name).isEqualTo(single)
+        val quoted = "ember-it-${UUID.randomUUID().toString().take(8)} \"quoted\" ñ.txt"
+        assertThat(client.upload(BytesUploadSource(quoted, "hi\n".toByteArray(), "text/plain")).name).isEqualTo(quoted)
+
+        val partSize = 5 * 1024 * 1024
+        val chunked = "ember-it-${UUID.randomUUID().toString().take(8)} Ålesund 🌊.bin"
+        val parts = client(fixture.tokens.all, partSize = partSize, threshold = partSize.toLong())
+        assertThat(parts.upload(BytesUploadSource(chunked, ByteArray(partSize + 100))).name).isEqualTo(chunked)
+        assertThat(findByName(client, chunked)?.name).isEqualTo(chunked)
+    }
+
+    @Test
     fun `uploads phone formats that Flare's type check is strict about`() = runBlocking {
         val client = client(fixture.tokens.all)
         // Each sample: what a content provider reports, and the type Flare should store.
