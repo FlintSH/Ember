@@ -252,6 +252,8 @@ class EmberJourneyTest {
         shots.take("library-files")
         device.findObject(By.text("Links")).click()
         waitFor(By.text(Pattern.compile(".*/u/.*")), timeout = 20_000)
+        // The list refreshes from Flare in the background; it should finish without an error.
+        assertThat(device.wait(Until.hasObject(By.textContains("Something went wrong")), 3_000)).isFalse()
         shots.take("library-links")
 
         waitFor(By.text("Home")).click()
