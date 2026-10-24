@@ -124,6 +124,8 @@ class ConnectViewModel(
                     _state.update { it.copy(step = ConnectStep.Editing, error = app.getString(message)) }
                     return@launch
                 }
+                // Before saving: the saved account replaces the onboarding screens right away.
+                container.justConnected.value = capabilities
                 container.accounts.connect(origin, credential, capabilities, displayName = null)
                 container.notifier.resolve(Attention.TOKEN_REJECTED)
                 container.notifier.resolve(Attention.TOKEN_UNREADABLE)

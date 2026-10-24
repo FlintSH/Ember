@@ -49,7 +49,6 @@ import androidx.navigation.toRoute
 import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.MainActivity
 import dev.fl1nt.ember.R
-import dev.fl1nt.ember.api.Capabilities
 import dev.fl1nt.ember.data.account.Account
 import dev.fl1nt.ember.data.settings.EmberSettings
 import dev.fl1nt.ember.ui.components.Hairline
@@ -93,10 +92,11 @@ private sealed interface AccountLoad {
 fun EmberRoot(container: AppContainer, destination: StateFlow<String?>, onDestinationHandled: () -> Unit) {
     val load by remember { container.accounts.account.map { AccountLoad.Loaded(it) } }.collectAsStateWithLifecycle(AccountLoad.Loading)
     val settings by container.settings.settings.collectAsStateWithLifecycle(EmberSettings())
-    var justConnected by remember { mutableStateOf<Capabilities?>(null) }
+    val justConnected by container.justConnected.collectAsStateWithLifecycle()
     // Reconnecting goes straight to the connect form, with the address filled in.
     var reconnecting by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(load) { if ((load as? AccountLoad.Loaded)?.account != null) reconnecting = false }
 
     EmberTheme(settings.themeMode) {
         SystemBars(isDarkTheme(settings.themeMode))
@@ -107,14 +107,8 @@ fun EmberRoot(container: AppContainer, destination: StateFlow<String?>, onDestin
                 when {
                     current is AccountLoad.Loading -> Unit
                     connected != null && current is AccountLoad.Loaded && current.account != null ->
-                        ReadyScreen(connected, current.account.origin.displayName, onDone = { justConnected = null })
-                    current is AccountLoad.Loaded && current.account == null -> OnboardingFlow(
-                        startAtConnect = reconnecting,
-                        onConnected = {
-                            reconnecting = false
-                            justConnected = it
-                        },
-                    )
+                        ReadyScreen(connected, current.account.origin.displayName, onDone = { container.justConnected.value = null })
+                    current is AccountLoad.Loaded && current.account == null -> OnboardingFlow(startAtConnect = reconnecting)
                     else -> MainFlow(destination, onDestinationHandled, onReconnect = {
                         reconnecting = true
                         scope.launch {
@@ -138,11 +132,11 @@ private fun SystemBars(dark: Boolean) {
 }
 
 @Composable
-private fun OnboardingFlow(startAtConnect: Boolean, onConnected: (Capabilities) -> Unit) {
+private fun OnboardingFlow(startAtConnect: Boolean) {
     var connecting by rememberSaveable { mutableStateOf(startAtConnect) }
     if (connecting) {
         androidx.activity.compose.BackHandler { connecting = false }
-        ConnectRoute(onBack = { connecting = false }, onConnected = onConnected)
+        ConnectRoute(onBack = { connecting = false })
     } else {
         WelcomeScreen(onConnect = { connecting = true })
     }

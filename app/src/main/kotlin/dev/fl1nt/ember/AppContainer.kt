@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Build
 import androidx.datastore.preferences.preferencesDataStore
+import dev.fl1nt.ember.api.Capabilities
 import dev.fl1nt.ember.data.FlareConnection
 import dev.fl1nt.ember.data.account.AccountStore
 import dev.fl1nt.ember.data.account.KeystoreSecretCipher
@@ -24,6 +25,7 @@ import dev.fl1nt.ember.system.LocalNetworkAccess
 import dev.fl1nt.ember.system.MediaPermissions
 import dev.fl1nt.ember.work.Notifier
 import dev.fl1nt.ember.work.WorkScheduler
+import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -46,6 +48,13 @@ class AppContainer(val application: Application) {
 
     val cipher: SecretCipher = KeystoreSecretCipher()
     val accounts = AccountStore(app.accountData, cipher)
+
+    /**
+     * What a connection that just succeeded can do, until the "You're connected"
+     * screen is dismissed. It lives here, not in the onboarding screens, because
+     * saving the account replaces those screens before they could show it.
+     */
+    val justConnected = MutableStateFlow<Capabilities?>(null)
     val settings = SettingsStore(app.settingsData)
     val database: EmberDatabase = EmberDatabase.create(app)
     val notifier = Notifier(app)

@@ -25,7 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -111,16 +110,11 @@ private fun Feature(icon: androidx.compose.ui.graphics.vector.ImageVector, title
 }
 
 @Composable
-fun ConnectRoute(onBack: () -> Unit, onConnected: (Capabilities) -> Unit) {
+fun ConnectRoute(onBack: () -> Unit) {
     val viewModel = emberViewModel { ConnectViewModel(it, it.application) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val localNetworkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission(), viewModel::onLocalNetworkResult)
-
-    LaunchedEffect(state.step) {
-        val step = state.step
-        if (step is ConnectStep.Connected) onConnected(step.capabilities)
-    }
 
     ConnectScreen(
         state = state,

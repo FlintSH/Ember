@@ -9,6 +9,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
@@ -100,6 +101,24 @@ class EmberJourneyTest {
         }
     }
 
+    /**
+     * Android previews the clipboard after a copy, over the bottom of the screen. It
+     * covers the sheet's Done button, so a tap there would hit the preview instead.
+     */
+    private fun dismissClipboardPreview() {
+        val preview = By.pkg("com.android.systemui").res(Pattern.compile(".*:id/(dismiss_button|clipboard_overlay_dismiss)"))
+        val dismiss = device.wait(Until.findObject(preview), 3_000) ?: return
+        dismiss.click()
+        device.wait(Until.gone(preview), 5_000)
+    }
+
+    /** Scrolls until [selector] is on screen; long forms keep their button below the fold. */
+    private fun scrollTo(selector: BySelector): UiObject2 {
+        device.findObject(selector)?.let { return it }
+        return waitFor(By.scrollable(true)).scrollUntil(Direction.DOWN, Until.findObject(selector))
+            ?: throw AssertionError("Couldn't scroll to $selector\n${hierarchy()}")
+    }
+
     private fun clickIfPresent(selector: BySelector, timeout: Long = 4_000): Boolean {
         val target = device.wait(Until.findObject(selector), timeout) ?: return false
         target.click()
@@ -149,9 +168,10 @@ class EmberJourneyTest {
         device.findObject(By.text("Upload 1 file")).click()
 
         waitFor(By.text("Done. Link copied."), timeout = 60_000)
+        dismissClipboardPreview()
         shots.take("share-done")
         assertThat(api.files(name)).containsEntry(name, "image/png")
-        device.findObject(By.text("Done")).click()
+        scrollTo(By.text("Done")).click()
     }
 
     @Test
@@ -172,9 +192,10 @@ class EmberJourneyTest {
         waitFor(By.text("Create paste")).click()
 
         waitFor(By.text("Done. Link copied."), timeout = 60_000)
+        dismissClipboardPreview()
         shots.take("paste-done")
         assertThat(api.files(name)).containsEntry(name, "text/plain")
-        device.findObject(By.text("Done")).click()
+        scrollTo(By.text("Done")).click()
     }
 
     @Test
@@ -192,9 +213,10 @@ class EmberJourneyTest {
         device.findObject(By.text("Shorten link")).click()
 
         waitFor(By.text("Done. Link copied."), timeout = 30_000)
+        dismissClipboardPreview()
         shots.take("shorten-done")
         assertThat(api.shortLinkTargets()).contains(target)
-        device.findObject(By.text("Done")).click()
+        scrollTo(By.text("Done")).click()
     }
 
     @Test
@@ -210,10 +232,9 @@ class EmberJourneyTest {
         shots.take("sync-albums")
         device.findObject(By.text(album)).click()
 
-        waitFor(By.text("Start syncing"))
-        device.findObject(By.text(Pattern.compile("All 2 items"))).click()
+        waitFor(By.text(Pattern.compile("All 2 items"))).click()
         shots.take("sync-options")
-        device.findObject(By.text("Start syncing")).click()
+        scrollTo(By.text("Start syncing")).click()
 
         waitUntil(description = "Flare has both synced photos") { api.files("e2e-sync-$run").keys.containsAll(names) }
         waitFor(By.text("2 uploaded"), timeout = 30_000)
