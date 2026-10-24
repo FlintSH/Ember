@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The tests check results through Flare's API. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <package android:name="dev.fl1nt.ember" />
+        <package android:name="dev.fl1nt.ember.rolling" />
+        <package android:name="dev.fl1nt.ember.debug" />
+    </queries>
+
+    <!-- The test server is plain HTTP on the emulator's host. -->
+    <application
+        android:label="Ember end-to-end tests"
+        android:usesCleartextTraffic="true" />
+</manifest>
