@@ -25,6 +25,13 @@ Ember talks only to the Flare server you connect it to. There are no accounts, a
 - 🔒 **Careful with your token.** Ember keeps it encrypted with the Android Keystore, never backs it up, and only needs the scopes you choose.
 - 🌓 **Looks like Flare.** Flare's palette, Inter, and Lucide icons, in dark (the default) or light.
 
+<div align="center">
+  <img src="./docs/images/screens/home.png" alt="Home, with quick actions, sync status, and recent uploads" width="200" />
+  <img src="./docs/images/screens/share.png" alt="The Upload to Flare sheet with two shared files" width="200" />
+  <img src="./docs/images/screens/sync.png" alt="Sync with the Screenshots, Camera, and Recordings folders" width="200" />
+  <img src="./docs/images/screens/library.png" alt="Library with this phone's upload history" width="200" />
+</div>
+
 ## 📖 Documentation
 
 - **Start here:** [Install and connect](docs/getting-started.md)

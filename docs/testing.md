@@ -32,6 +32,10 @@ git diff --stat app/src/test/screenshots
 
 `verifyRoborazziDebug` fails on any difference, and CI uploads the comparison images when it does.
 
+Sample times a day or more in the past use whole days, because "Yesterday" and "2 days ago" follow the calendar and would change with the time of day the tests run.
+
+The screenshots in the README, `docs/images/screens`, are these renders scaled to 540 pixels wide. Refresh them when the screens they show change.
+
 ## Live Flare tests
 
 These need a disposable Flare server and a fixture file with tokens. `scripts/flare-fixture/bootstrap.py` prepares any Flare instance: it completes first-run setup, signs in, creates tokens, and writes the fixture. See [its README](../scripts/flare-fixture/README.md).
