@@ -20,6 +20,7 @@ Details that matter:
 
 - **One-shot bodies.** Multipart bodies are marked one-shot so OkHttp never silently repeats a request that could create a second file.
 - **Type checks.** `MimeTypes` sniffs file signatures and applies the same equivalence rules as Flare's `lib/security/file-validation.ts`, so uploads aren't rejected for a provider's wrong or generic type.
+- **Idle connections.** Flare runs on Node, which closes idle keep-alive connections after 5 seconds, while OkHttp rechecks a pooled connection before a POST only after 10. `forFlare()` drops idle connections after 4 seconds, so an upload never goes out on a connection Flare already closed.
 - **Rate limits.** `UploadStartLimiter` keeps upload starts under Flare's 30 per minute. A 429 can arrive while a body is still being written and surface as a broken connection, so Ember paces itself instead of relying on the error. One limiter is shared per server.
 - **Errors.** `FlareException` subclasses map Flare's status codes and keep its `error` text for display.
 - **Android compatibility.** The module compiles against the JDK 17 API, and the app's lint checks it against Android API levels, so it can't call newer JDK methods that old Android versions lack.

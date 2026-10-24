@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import androidx.datastore.preferences.preferencesDataStore
 import dev.fl1nt.ember.api.Capabilities
+import dev.fl1nt.ember.api.forFlare
 import dev.fl1nt.ember.data.FlareConnection
 import dev.fl1nt.ember.data.account.AccountStore
 import dev.fl1nt.ember.data.account.KeystoreSecretCipher
@@ -38,6 +39,7 @@ class AppContainer(val application: Application) {
     private val userAgent = "Ember/${BuildConfig.VERSION_NAME} (Android ${Build.VERSION.RELEASE}; SDK ${Build.VERSION.SDK_INT})"
 
     val http: OkHttpClient = OkHttpClient.Builder()
+        .forFlare()
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)

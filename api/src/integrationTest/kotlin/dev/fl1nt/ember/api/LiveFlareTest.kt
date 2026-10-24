@@ -2,6 +2,7 @@ package dev.fl1nt.ember.api
 
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -42,7 +43,7 @@ class LiveFlareTest {
     companion object {
         private lateinit var fixture: Fixture
         private val json = Json { ignoreUnknownKeys = true }
-        private val http = OkHttpClient.Builder().readTimeout(120, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
+        private val http = OkHttpClient.Builder().forFlare().readTimeout(120, TimeUnit.SECONDS).writeTimeout(120, TimeUnit.SECONDS).build()
 
         // One limiter for the whole run keeps the suite under Flare's 30 uploads per minute.
         private val limiter = UploadStartLimiter()
@@ -97,6 +98,18 @@ class LiveFlareTest {
 
         val bogus = runCatching { client("flr_not-a-real-token").probeCapabilities() }.exceptionOrNull()
         assertThat(bogus).isInstanceOf(FlareException.Unauthorized::class.java)
+    }
+
+    @Test
+    fun `an upload a few seconds after the last request still goes through`() = runBlocking {
+        // A pool of its own, so only this test's connection is in it.
+        val client = FlareClient(FlareOrigin.parse(fixture.url), FlareCredential.of(fixture.tokens.all), OkHttpClient.Builder().forFlare().build(), limiter)
+        client.checkHealth()
+        // Flare has closed the idle connection by now, and OkHttp wouldn't check it for a few more seconds.
+        // With OkHttp's default pool, this upload fails with "unexpected end of stream".
+        delay(6_500)
+        val name = uniqueName("png")
+        assertThat(client.upload(BytesUploadSource(name, png, "image/png")).name).isEqualTo(name)
     }
 
     @Test

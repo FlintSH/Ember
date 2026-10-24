@@ -42,6 +42,12 @@ class EmberJourneyTest {
         private val shots by lazy { Screenshots(context, Args.label) }
         private val album = "EmberE2E-$run"
 
+        /**
+         * A small upload takes a few seconds. Anything near 30 means the first try
+         * failed and WorkManager retried it, which is a bug worth failing on.
+         */
+        private const val UPLOAD_TIMEOUT = 20_000L
+
         @BeforeClass
         @JvmStatic
         fun prepare() {
@@ -167,7 +173,7 @@ class EmberJourneyTest {
         shots.take("share-review")
         device.findObject(By.text("Upload 1 file")).click()
 
-        waitFor(By.text("Done. Link copied."), timeout = 60_000)
+        waitFor(By.text("Done. Link copied."), timeout = UPLOAD_TIMEOUT)
         dismissClipboardPreview()
         shots.take("share-done")
         assertThat(api.files(name)).containsEntry(name, "image/png")
@@ -191,7 +197,7 @@ class EmberJourneyTest {
         shots.take("paste-review")
         waitFor(By.text("Create paste")).click()
 
-        waitFor(By.text("Done. Link copied."), timeout = 60_000)
+        waitFor(By.text("Done. Link copied."), timeout = UPLOAD_TIMEOUT)
         dismissClipboardPreview()
         shots.take("paste-done")
         assertThat(api.files(name)).containsEntry(name, "text/plain")
@@ -212,7 +218,7 @@ class EmberJourneyTest {
         shots.take("shorten-review")
         device.findObject(By.text("Shorten link")).click()
 
-        waitFor(By.text("Done. Link copied."), timeout = 30_000)
+        waitFor(By.text("Done. Link copied."), timeout = UPLOAD_TIMEOUT)
         dismissClipboardPreview()
         shots.take("shorten-done")
         assertThat(api.shortLinkTargets()).contains(target)
