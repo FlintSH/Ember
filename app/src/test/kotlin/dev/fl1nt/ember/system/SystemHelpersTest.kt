@@ -18,6 +18,14 @@ class SystemHelpersTest {
     }
 
     @Test
+    fun `recognizes loopback hosts, which need no HTTP warning`() {
+        listOf("localhost", "LOCALHOST.", "app.localhost", "127.0.0.1", "127.10.0.1", "::1", "[::1]")
+            .forEach { assertWithMessage(it).that(LocalAddresses.isLoopbackHost(it)).isTrue() }
+        listOf("10.0.2.2", "files.example.com", "localhost.example.com", "128.0.0.1")
+            .forEach { assertWithMessage(it).that(LocalAddresses.isLoopbackHost(it)).isFalse() }
+    }
+
+    @Test
     fun `detects a single shared url`() {
         assertThat(SharedText.singleUrl("  https://example.com/a?b=c  ")).isEqualTo("https://example.com/a?b=c")
         assertThat(SharedText.singleUrl("<https://example.com>")).isEqualTo("https://example.com")

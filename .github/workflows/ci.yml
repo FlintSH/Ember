@@ -102,7 +102,8 @@ jobs:
       - name: Lint, test, verify screenshots, and build
         env:
           EMBER_KEYSTORE_PASSWORD: ${{ secrets.EMBER_KEYSTORE_PASSWORD }}
-          EMBER_KEY_ALIAS: ${{ secrets.EMBER_KEY_ALIAS }}
+          # The alias isn't secret, and as a secret GitHub would mask every "ember" in the logs.
+          EMBER_KEY_ALIAS: ember
           EMBER_KEY_PASSWORD: ${{ secrets.EMBER_KEY_PASSWORD }}
         run: >
           ./gradlew --stacktrace
@@ -299,7 +300,16 @@ jobs:
             } > "$RUNNER_TEMP/notes.md"
             notes="$RUNNER_TEMP/notes.md"
           fi
-          gh release create "v$VERSION" dist/*.apk dist/SHA256SUMS \
+          # Optional demo screenshots and recordings, one repository path per line.
+          assets=()
+          list=".github/release-notes/v$VERSION.assets"
+          if [ -f "$list" ]; then
+            while IFS= read -r path; do
+              case "$path" in ''|'#'*) continue ;; esac
+              assets+=("$path")
+            done < "$list"
+          fi
+          gh release create "v$VERSION" dist/*.apk dist/SHA256SUMS "${assets[@]}" \
             --target "$GITHUB_SHA" \
             --title "Ember $VERSION" \
             --notes-file "$notes"

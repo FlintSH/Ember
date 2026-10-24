@@ -104,6 +104,8 @@ class Notifier(private val context: Context) {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(openApp(if (reason == Attention.TOKEN_REJECTED) MainActivity.DESTINATION_SETTINGS else MainActivity.DESTINATION_SYNC))
+            // Scheduled syncs repeat the check; only the first one should make a sound.
+            .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .build()
         post(ID_ATTENTION, notification)

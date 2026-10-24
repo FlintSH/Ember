@@ -53,6 +53,8 @@ class AccountStoreTest {
         store.disconnect()
         assertThat(store.current()).isNull()
         assertThat(store.credential()).isNull()
+        // The address survives so replacing a revoked token doesn't mean retyping it.
+        assertThat(store.lastOrigin()).isEqualTo("http://192.168.1.20:3000")
     }
 
     @Test

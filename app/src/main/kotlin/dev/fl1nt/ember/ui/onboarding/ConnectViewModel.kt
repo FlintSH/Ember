@@ -10,6 +10,7 @@ import dev.fl1nt.ember.api.Capabilities
 import dev.fl1nt.ember.api.FlareCredential
 import dev.fl1nt.ember.api.FlareOrigin
 import dev.fl1nt.ember.api.InvalidOriginException
+import dev.fl1nt.ember.system.LocalAddresses
 import dev.fl1nt.ember.ui.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,14 @@ class ConnectViewModel(
 
     private var httpConfirmedFor: String? = null
 
+    init {
+        // After a disconnect, for example to replace a revoked token, keep the address.
+        viewModelScope.launch {
+            val last = container.accounts.lastOrigin() ?: return@launch
+            _state.update { if (it.address.isEmpty()) it.copy(address = last) else it }
+        }
+    }
+
     fun onAddressChange(value: String) = _state.update { it.copy(address = value, addressError = null, error = null) }
 
     fun onTokenChange(value: String) = _state.update { it.copy(token = value.trim(), tokenError = null, error = null) }
@@ -92,7 +101,8 @@ class ConnectViewModel(
         }
         _state.update { it.copy(step = ConnectStep.Checking, error = null) }
         viewModelScope.launch {
-            val local = container.localNetwork.isLocal(origin)
+            // Plain HTTP only exposes the token when it crosses a network you don't control.
+            val local = container.localNetwork.isLocal(origin) || LocalAddresses.isLoopbackHost(origin.host)
             if (!origin.isHttps && !local && httpConfirmedFor != origin.toString()) {
                 _state.update { it.copy(step = ConnectStep.ConfirmHttp(origin.displayName)) }
                 return@launch
@@ -110,6 +120,8 @@ class ConnectViewModel(
                 }
                 container.accounts.connect(origin, credential, capabilities, displayName = null)
                 container.sync.reschedule(force = false)
+                // Uploads queued before a disconnect continue with the new token.
+                container.scheduler.kickUploads()
                 _state.update { it.copy(step = ConnectStep.Connected(capabilities), token = "") }
             } catch (cancelled: CancellationException) {
                 throw cancelled

@@ -13,7 +13,7 @@ Rolling is a separate app so people can try `main` without ever being stuck on a
 
 ## Cut a stable release
 
-1. Write release notes in `.github/release-notes/vX.Y.Z.md`. Without the file, the release lists commit subjects since the previous tag. Read earlier notes first and match their voice.
+1. Write release notes in `.github/release-notes/vX.Y.Z.md`. Without the file, the release lists commit subjects since the previous tag. Read earlier notes first and match their voice. To attach demo screenshots or recordings, list their repository paths, one per line, in `.github/release-notes/vX.Y.Z.assets`, and link to them in the notes as `https://github.com/FlintSH/Ember/releases/download/vX.Y.Z/<file name>`.
 2. Change `versionName` in `version.properties`.
 3. Merge to `main`.
 
@@ -47,8 +47,9 @@ The key lives in repository secrets:
 | --- | --- |
 | `EMBER_KEYSTORE_BASE64` | The PKCS #12 keystore, base64 encoded |
 | `EMBER_KEYSTORE_PASSWORD` | Keystore password |
-| `EMBER_KEY_ALIAS` | `ember` |
 | `EMBER_KEY_PASSWORD` | Key password |
+
+The key alias, `ember`, isn't secret and is set in the workflow.
 
 The repository variable `EMBER_SIGNING_CERT_SHA256` holds the certificate digest in `apksigner`'s format (lowercase hex). CI refuses to publish an APK signed with anything else, including the debug key.
 

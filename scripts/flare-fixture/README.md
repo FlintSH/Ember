@@ -74,28 +74,17 @@ message names the step, the HTTP status and the server's error text, for example
 
 ## Run it in CI
 
-Start PostgreSQL and Flare, then run the script against the published port. This sketch
-uses Docker and the Flare image built from the same commit as the local fixture
-(`b2c0b16`). It has not been run in CI yet.
+`.github/workflows/ci.yml` runs PostgreSQL as a service and calls
+`scripts/ci/start-flare.sh`, which starts the published Flare image on the
+runner's network and runs this script:
 
 ```sh
-docker network create flare-ci
-docker run -d --name flare-db --network flare-ci \
-  -e POSTGRES_USER=flare -e POSTGRES_PASSWORD=flarepassword -e POSTGRES_DB=flare \
-  postgres:16-alpine
-docker run -d --name flare --network flare-ci -p 3000:3000 \
-  -e DATABASE_URL='postgresql://flare:flarepassword@flare-db:5432/flare?schema=public' \
-  -e NEXTAUTH_URL=http://localhost:3000 \
-  -e NEXTAUTH_SECRET="$(openssl rand -base64 32)" \
-  flintsh/flare:rolling-b2c0b16
-python3 scripts/flare-fixture/bootstrap.py \
-  --url http://localhost:3000 \
-  --out "$RUNNER_TEMP/flare-fixture.json" \
-  --timeout 300
+FLARE_IMAGE=docker.io/flintsh/flare:3.0.0 scripts/ci/start-flare.sh "$RUNNER_TEMP/flare-fixture.json"
 ```
 
-Pass the fixture path to the tests. Do not print the file or upload it as a build
-artifact.
+The live API job then passes the file to `./gradlew :api:integrationTest` with
+`FLARE_FIXTURE`, and the emulator jobs read the `all` token from it. The token is
+masked in the logs. Do not print the file or upload it as a build artifact.
 
 ## Things the tests should expect
 
@@ -113,7 +102,7 @@ artifact.
   upload into the folder, send `X-Upload-Folder: <folderId>` (or `?folderId=`) with
   `POST /api/files`. Named tokens can do that.
 - **Size units differ.** The upload response reports `size` in bytes. `GET /api/files`
-  reports `size` in megabytes.
+  reports `size` in MiB.
 - **Links use `NEXTAUTH_URL`.** `url`, `pageUrl`, `rawUrl` and `downloadUrl` are built from
   the server's `NEXTAUTH_URL`, not from the request host. On an Android emulator, run
   `adb reverse tcp:3300 tcp:3300` so `http://localhost:3300` inside the emulator reaches

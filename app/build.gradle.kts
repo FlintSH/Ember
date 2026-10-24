@@ -119,8 +119,6 @@ android {
         warningsAsErrors = false
         checkDependencies = true
         disable += setOf("GradleDependency", "AndroidGradlePluginVersion", "NewerVersionAvailable", "ObsoleteLintCustomCheck")
-        xmlReport = false
-        sarifReport = true
     }
 
     packaging {

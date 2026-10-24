@@ -8,10 +8,12 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import dev.fl1nt.ember.EmberApp
 import dev.fl1nt.ember.data.db.FailureKind
+import dev.fl1nt.ember.data.db.SourceType
 import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.sync.SyncRun
 import dev.fl1nt.ember.data.uploads.Uploader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /** Uploads queued shares, pastes, and picked files, one at a time. */
@@ -89,8 +91,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 c.notifier.showSyncProgress(progress.done, progress.total, progress.current)
             }
         } finally {
-            c.notifier.cancel(Notifier.ID_SYNC_PROGRESS)
-            if (reason == REASON_MEDIA && prefs.enabled) c.scheduler.armMediaTrigger(prefs)
+            withContext(NonCancellable) {
+                c.notifier.cancel(Notifier.ID_SYNC_PROGRESS)
+                // Trigger work runs once; watch MediaStore again only while an album still syncs.
+                val albumsSync = c.database.sources().all().any { it.enabled && it.type == SourceType.MEDIA_ALBUM }
+                if (reason == REASON_MEDIA && prefs.enabled && albumsSync) c.scheduler.armMediaTrigger(prefs)
+            }
         }
         return when (result) {
             is SyncRun.Completed, SyncRun.Disabled, SyncRun.NotConnected -> Result.success()

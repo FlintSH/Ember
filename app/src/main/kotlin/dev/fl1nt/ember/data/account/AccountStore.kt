@@ -90,9 +90,17 @@ class AccountStore(
         }
     }
 
+    /** Forgets the account, but remembers its address so reconnecting is quick. */
     suspend fun disconnect() {
-        dataStore.edit { it.clear() }
+        dataStore.edit { prefs ->
+            val last = prefs[ORIGIN]
+            prefs.clear()
+            last?.let { prefs[LAST_ORIGIN] = it }
+        }
     }
+
+    /** The address of the most recently disconnected account, if any. */
+    suspend fun lastOrigin(): String? = dataStore.data.first()[LAST_ORIGIN]
 
     private fun Preferences.toAccount(): Account? {
         val origin = this[ORIGIN]?.let(FlareOrigin::parseOrNull) ?: return null
@@ -150,6 +158,7 @@ class AccountStore(
         val PUBLIC_ORIGIN = stringPreferencesKey("public_origin")
         val CONNECTED_AT = longPreferencesKey("connected_at")
         val CHECKED_AT = longPreferencesKey("checked_at")
+        val LAST_ORIGIN = stringPreferencesKey("last_origin")
         val json = Json { ignoreUnknownKeys = true }
     }
 }

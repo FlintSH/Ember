@@ -28,6 +28,18 @@ object LocalAddresses {
         return isLocal(literal)
     }
 
+    /** `localhost` and loopback addresses. Traffic to them never leaves the device. */
+    fun isLoopbackHost(host: String): Boolean {
+        val normalized = host.lowercase().trimEnd('.').removePrefix("[").removeSuffix("]")
+        if (normalized == "localhost" || normalized.endsWith(".localhost")) return true
+        val literal = if (IPV4.matches(normalized) || normalized.contains(':')) {
+            runCatching { InetAddress.getByName(normalized) }.getOrNull()
+        } else {
+            null
+        }
+        return literal?.isLoopbackAddress == true
+    }
+
     /** Private IPv4 ranges, link-local addresses, and IPv6 unique local addresses. */
     fun isLocal(address: InetAddress): Boolean = when (address) {
         is Inet4Address -> address.isSiteLocalAddress || address.isLinkLocalAddress

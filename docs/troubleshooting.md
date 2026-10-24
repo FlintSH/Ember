@@ -22,7 +22,7 @@
 
 **Rejected by Flare.** Flare refused the request and Ember shows its reason, such as a missing folder. A wrong file type usually means the sending app reported the type incorrectly; send the file again from a file manager.
 
-**Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Token rejected** and a notification instead.
+**Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Token rejected** and a notification instead: disconnect in **Settings** and connect with a new token. Waiting uploads continue afterwards.
 
 **A link points to the wrong address.** Flare builds links from its `NEXTAUTH_URL` setting. Ask your administrator to set it to the public address.
 

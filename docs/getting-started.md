@@ -78,7 +78,7 @@ If you decline, Ember can't connect. You can allow it later in Android's setting
 
 ### Plain HTTP
 
-Over `http://`, your token and files travel unencrypted. For an address that isn't on your local network, Ember asks you to confirm before connecting. Use HTTPS when your server supports it, for example behind a [reverse proxy](https://flintsh.github.io/Flare/hosting/reverse-proxy.html).
+Over `http://`, your token and files travel unencrypted. For an address that isn't on your local network or this phone itself (`localhost`), Ember asks you to confirm before connecting. Use HTTPS when your server supports it, for example behind a [reverse proxy](https://flintsh.github.io/Flare/hosting/reverse-proxy.html).
 
 ### A private certificate authority
 
@@ -96,6 +96,8 @@ Next:
 
 ## Disconnect or switch servers
 
-**Settings → Disconnect** forgets the token and stops all uploads and sync. Your upload history and sync folders stay on the phone, so reconnecting picks up where you left off. Files already in Flare are not affected.
+**Settings → Disconnect** forgets the token and stops all uploads and sync. Your upload history and sync folders stay on the phone, and Ember remembers the address, so reconnecting picks up where you left off, including uploads that were waiting. Files already in Flare are not affected.
+
+To replace a token, for example after revoking it, disconnect and connect again with the new one.
 
 To use another server, disconnect and connect to the new one. A synced folder remembers what it already uploaded, so files sent to the old server aren't sent to the new one. Remove and add the folder again with **Everything here** to upload them anyway.

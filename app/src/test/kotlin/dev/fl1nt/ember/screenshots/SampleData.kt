@@ -102,12 +102,15 @@ object SampleData {
         ShortLinkEntity("l3", "m4Z7sT", "https://example.com/a/very/long/path/that/needs/shortening?with=query&params=true", "https://files.northstar.example/u/m4Z7sT", 0, now - 4 * 24 * 60 * MINUTE),
     )
 
+    /** An ISO timestamp [minutes] before now, so relative times render the same on every run. */
+    private fun ago(minutes: Long): String = java.time.Instant.ofEpochMilli(now - minutes * MINUTE).toString()
+
     val remoteFiles = listOf(
-        RemoteFile("f1", "IMG_20261023_183344.jpg", "/alex/IMG_20261023_183344.jpg", "image/jpeg", 3.2, "2026-10-23T18:33:44.000Z", "PRIVATE", tags = listOf(RemoteTag("t", "Camera"))),
-        RemoteFile("f2", "invoice-october.pdf", "/alex/invoice-october.pdf", "application/pdf", 0.23, "2026-10-23T16:10:00.000Z", "PUBLIC", hasPassword = true),
-        RemoteFile("f3", "release-notes.md", "/alex/release-notes.md", "text/plain", 0.004, "2026-10-23T21:40:00.000Z", "PUBLIC"),
-        RemoteFile("f4", "trip-clip.mp4", "/alex/trip-clip.mp4", "video/mp4", 45.8, "2026-10-22T09:00:00.000Z", "PUBLIC"),
-        RemoteFile("f5", "dotfiles.tar.gz", "/alex/dotfiles.tar.gz", "application/gzip", 1.4, "2026-10-20T11:00:00.000Z", "PRIVATE"),
+        RemoteFile("f1", "IMG_20261023_183344.jpg", "/alex/IMG_20261023_183344.jpg", "image/jpeg", 3.2, ago(42), "PRIVATE", tags = listOf(RemoteTag("t", "Camera"))),
+        RemoteFile("f2", "invoice-october.pdf", "/alex/invoice-october.pdf", "application/pdf", 0.23, ago(95), "PUBLIC", hasPassword = true),
+        RemoteFile("f3", "release-notes.md", "/alex/release-notes.md", "text/plain", 0.004, ago(3), "PUBLIC"),
+        RemoteFile("f4", "trip-clip.mp4", "/alex/trip-clip.mp4", "video/mp4", 45.8, ago(26 * 60), "PUBLIC"),
+        RemoteFile("f5", "dotfiles.tar.gz", "/alex/dotfiles.tar.gz", "application/gzip", 1.4, ago(4 * 24 * 60), "PRIVATE"),
     )
 
     val folders = listOf(RemoteFolder("a", "Screenshots"), RemoteFolder("b", "Projects"), RemoteFolder("c", "Website", parentId = "b"))
