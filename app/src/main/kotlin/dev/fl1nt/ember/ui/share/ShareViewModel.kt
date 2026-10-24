@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.api.Expiration
-import dev.fl1nt.ember.api.RemoteFolder
 import dev.fl1nt.ember.api.UploadOptions
 import dev.fl1nt.ember.api.Visibility
 import dev.fl1nt.ember.data.account.Account
@@ -17,9 +16,11 @@ import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.settings.EmberSettings
 import dev.fl1nt.ember.data.settings.LinkFormat
 import dev.fl1nt.ember.data.settings.UploadPreset
+import dev.fl1nt.ember.data.uploads.canRetry
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.SharedText
-import dev.fl1nt.ember.ui.describeError
+import dev.fl1nt.ember.system.describeError
+import dev.fl1nt.ember.ui.components.FolderChoices
 import dev.fl1nt.ember.ui.sync.fetchFolders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -53,16 +54,22 @@ data class ShareState(
     val expiration: Expiration? = null,
     val folder: UploadPreset.Choice = UploadPreset.Choice.Inherit,
     val password: String = "",
-    val folders: List<RemoteFolder>? = null,
+    val folders: FolderChoices = FolderChoices.Loading,
     val uploads: List<UploadEntity> = emptyList(),
     val shortLink: ShortLinkEntity? = null,
     val copied: Boolean = false,
     val error: String? = null,
 ) {
-    val canShorten: Boolean get() = account?.capabilities?.manageLinks?.isGranted == true
+    val canShorten: Boolean get() = account?.capabilities?.manageLinks?.isDenied == false
     val passwordTooLong: Boolean get() = password.toByteArray(Charsets.UTF_8).size > UploadOptions.MAX_PASSWORD_BYTES
     val finished: Int get() = uploads.count { it.status == UploadStatus.DONE }
     val failed: List<UploadEntity> get() = uploads.filter { it.status == UploadStatus.FAILED }
+
+    /** Failed uploads that trying again could fix: Ember still has the file, or the sheet can copy it in again. */
+    val retryable: List<UploadEntity> get() = failed.filter { it.canRetry || (it.stagedPath == null && files.isNotEmpty()) }
+
+    /** Whether Try again can do anything: retry uploads, or go back to the form after a failed paste or link. */
+    val canRetry: Boolean get() = retryable.isNotEmpty() || (uploads.isEmpty() && (files.isNotEmpty() || text.isNotBlank()))
 
     /** Links to hand back, in the format chosen in settings. */
     val links: List<String>
@@ -278,7 +285,17 @@ class ShareViewModel(private val container: AppContainer) : ViewModel() {
     fun retry() {
         val current = _state.value
         viewModelScope.launch {
-            current.failed.forEach { container.uploads.retry(it.id) }
+            // Rows are created in the order the files were shared.
+            val ordered = current.uploads.sortedBy { it.createdAt }
+            current.retryable.forEach { row ->
+                if (row.canRetry) {
+                    container.uploads.retry(row.id)
+                } else {
+                    // It failed while being copied in, so there's no copy to retry from. The sheet can still read the original.
+                    val file = current.files.getOrNull(ordered.indexOf(row)) ?: return@forEach
+                    container.uploads.restage(row.id, file.uri, current.password.ifEmpty { null })
+                }
+            }
         }
         if (current.uploads.isEmpty()) {
             _state.update { it.copy(phase = if (it.files.isNotEmpty()) SharePhase.REVIEW_FILES else SharePhase.REVIEW_TEXT, error = null) }

@@ -64,6 +64,14 @@ class SyncPlannerTest {
     }
 
     @Test
+    fun `a file dated in the future isn't stuck waiting`() {
+        // A camera with a wrong clock, or an archive from another time zone.
+        val plan = SyncPlanner.plan(SourceType.FOLDER, 0, listOf(item("future", added = now - 60_000, modified = now + 3_600_000)), emptyMap(), now)
+        assertThat(plan.toUpload.map { it.key }).containsExactly("future")
+        assertThat(plan.settling).isEqualTo(0)
+    }
+
+    @Test
     fun `ignores hidden, partial and empty files`() {
         val plan = SyncPlanner.plan(
             SourceType.FOLDER,

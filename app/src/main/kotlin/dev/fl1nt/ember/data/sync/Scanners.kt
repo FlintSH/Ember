@@ -12,13 +12,21 @@ import dev.fl1nt.ember.data.db.SyncSourceEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import kotlin.coroutines.coroutineContext
 
 /** Lists the files currently in a sync source. */
 fun interface SourceScanner {
-    /** @throws SecurityException when Ember lost access to the source. */
+    /**
+     * @throws SecurityException when Ember lost access to the source.
+     * @throws FolderMissingException when the folder is gone.
+     * @throws IOException when the system couldn't list it this time.
+     */
     suspend fun scan(source: SyncSourceEntity): List<SourceItem>
 }
+
+/** The folder was deleted or renamed, or the SD card or USB drive it's on was removed. */
+class FolderMissingException(message: String) : IOException(message)
 
 /** Routes each source to the scanner for its type. */
 class DefaultSourceScanner(
@@ -62,7 +70,10 @@ class MediaStoreScanner(private val resolver: ContentResolver) : SourceScanner {
             MediaStore.Files.FileColumns.MEDIA_TYPE,
         )
         val items = ArrayList<SourceItem>()
-        resolver.query(FILES, projection, selection, args, "${MediaStore.MediaColumns.DATE_ADDED} ASC")?.use { cursor ->
+        // A null cursor means the media provider isn't answering, not an empty album.
+        val rows = resolver.query(FILES, projection, selection, args, "${MediaStore.MediaColumns.DATE_ADDED} ASC")
+            ?: throw IOException("The photo library didn't answer")
+        rows.use { cursor ->
             val id = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
             val name = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
             val mime = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
@@ -106,12 +117,20 @@ class DocumentTreeScanner(private val resolver: ContentResolver) : SourceScanner
         if (!permitted) throw SecurityException("Ember no longer has access to ${source.name}")
         val items = ArrayList<SourceItem>()
         val pending = ArrayDeque<Pair<String, Int>>()
-        pending.addLast(DocumentsContract.getTreeDocumentId(tree) to 0)
+        val root = DocumentsContract.getTreeDocumentId(tree)
+        pending.addLast(root to 0)
         while (pending.isNotEmpty() && items.size < MAX_ITEMS) {
             coroutineContext.ensureActive()
             val (parent, depth) = pending.removeFirst()
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parent)
-            resolver.query(children, PROJECTION, null, null, null)?.use { cursor ->
+            // Document providers answer null for a folder they can't find. For the synced folder
+            // itself that means it's gone; a subfolder may just have been deleted during the walk.
+            val rows = resolver.query(children, PROJECTION, null, null, null)
+            if (rows == null) {
+                if (parent == root) throw FolderMissingException("${source.name} is gone")
+                continue
+            }
+            rows.use { cursor ->
                 while (cursor.moveToNext()) {
                     val documentId = cursor.getString(0) ?: continue
                     val name = cursor.getString(1) ?: continue

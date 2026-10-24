@@ -35,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,6 +94,9 @@ fun EmberRoot(container: AppContainer, destination: StateFlow<String?>, onDestin
     val load by remember { container.accounts.account.map { AccountLoad.Loaded(it) } }.collectAsStateWithLifecycle(AccountLoad.Loading)
     val settings by container.settings.settings.collectAsStateWithLifecycle(EmberSettings())
     var justConnected by remember { mutableStateOf<Capabilities?>(null) }
+    // Reconnecting goes straight to the connect form, with the address filled in.
+    var reconnecting by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     EmberTheme(settings.themeMode) {
         SystemBars(isDarkTheme(settings.themeMode))
@@ -106,8 +108,20 @@ fun EmberRoot(container: AppContainer, destination: StateFlow<String?>, onDestin
                     current is AccountLoad.Loading -> Unit
                     connected != null && current is AccountLoad.Loaded && current.account != null ->
                         ReadyScreen(connected, current.account.origin.displayName, onDone = { justConnected = null })
-                    current is AccountLoad.Loaded && current.account == null -> OnboardingFlow(onConnected = { justConnected = it })
-                    else -> MainFlow(destination, onDestinationHandled)
+                    current is AccountLoad.Loaded && current.account == null -> OnboardingFlow(
+                        startAtConnect = reconnecting,
+                        onConnected = {
+                            reconnecting = false
+                            justConnected = it
+                        },
+                    )
+                    else -> MainFlow(destination, onDestinationHandled, onReconnect = {
+                        reconnecting = true
+                        scope.launch {
+                            container.scheduler.cancelAll()
+                            container.accounts.disconnect()
+                        }
+                    })
                 }
             }
         }
@@ -124,8 +138,8 @@ private fun SystemBars(dark: Boolean) {
 }
 
 @Composable
-private fun OnboardingFlow(onConnected: (Capabilities) -> Unit) {
-    var connecting by rememberSaveable { mutableStateOf(false) }
+private fun OnboardingFlow(startAtConnect: Boolean, onConnected: (Capabilities) -> Unit) {
+    var connecting by rememberSaveable { mutableStateOf(startAtConnect) }
     if (connecting) {
         androidx.activity.compose.BackHandler { connecting = false }
         ConnectRoute(onBack = { connecting = false }, onConnected = onConnected)
@@ -144,7 +158,7 @@ private val TABS = listOf(
 )
 
 @Composable
-private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -> Unit) {
+private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -> Unit, onReconnect: () -> Unit) {
     val navController = rememberNavController()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -159,6 +173,7 @@ private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -
     LaunchedEffect(pending) {
         val target = pending ?: return@LaunchedEffect
         when (target) {
+            MainActivity.DESTINATION_HOME -> navController.navigateTab(HomeDestination)
             MainActivity.DESTINATION_RECENT -> navController.navigateTab(LibraryDestination(LibraryTab.RECENT.name))
             MainActivity.DESTINATION_SYNC -> navController.navigateTab(SyncDestination)
             MainActivity.DESTINATION_SETTINGS -> navController.navigateTab(SettingsDestination)
@@ -229,6 +244,7 @@ private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -
                         onSnackbar = showMessage,
                         openUploadPicker = openUploadPicker,
                         onUploadPickerHandled = { openUploadPicker = false },
+                        onReconnect = onReconnect,
                     )
                 }
                 composable<LibraryDestination> { entry ->

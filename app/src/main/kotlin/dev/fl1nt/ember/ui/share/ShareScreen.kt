@@ -64,8 +64,8 @@ import dev.fl1nt.ember.ui.components.SegmentedControl
 import dev.fl1nt.ember.ui.components.StatusPill
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.VisibilityRow
-import dev.fl1nt.ember.ui.components.failureLabel
 import dev.fl1nt.ember.ui.components.countString
+import dev.fl1nt.ember.ui.components.failureLabel
 import dev.fl1nt.ember.ui.icons.Lucide
 
 data class ShareCallbacks(
@@ -137,7 +137,7 @@ fun ShareScreen(state: ShareState, callbacks: ShareCallbacks) {
                     SharePhase.FAILED -> {
                         Notice(state.error ?: stringResource(R.string.failure_other), tone = Tone.DANGER)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (state.failed.isNotEmpty()) PrimaryButton(stringResource(R.string.action_retry), onClick = callbacks.onRetry, icon = Lucide.RotateCcw, modifier = Modifier.weight(1f))
+                            if (state.canRetry) PrimaryButton(stringResource(R.string.action_retry), onClick = callbacks.onRetry, icon = Lucide.RotateCcw, modifier = Modifier.weight(1f))
                             OutlineButton(stringResource(R.string.action_close), onClick = callbacks.onDismiss, modifier = Modifier.weight(1f))
                         }
                     }
@@ -329,6 +329,6 @@ private fun Done(state: ShareState, callbacks: ShareCallbacks) {
             }
         }
     }
-    if (state.failed.isNotEmpty()) GhostButton(stringResource(R.string.action_retry), onClick = callbacks.onRetry, icon = Lucide.RotateCcw)
+    if (state.retryable.isNotEmpty()) GhostButton(stringResource(R.string.action_retry), onClick = callbacks.onRetry, icon = Lucide.RotateCcw)
     GhostButton(stringResource(R.string.action_done), onClick = callbacks.onDismiss, modifier = Modifier.fillMaxWidth())
 }

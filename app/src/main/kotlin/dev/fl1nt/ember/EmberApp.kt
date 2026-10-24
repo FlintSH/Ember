@@ -1,13 +1,14 @@
 package dev.fl1nt.ember
 
 import android.app.Application
-import dev.fl1nt.ember.data.db.UploadStatus
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import dev.fl1nt.ember.system.AppShortcuts
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChangedBy
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class EmberApp : Application() {
@@ -23,6 +24,13 @@ class EmberApp : Application() {
         container = AppContainer(this)
         container.notifier.createChannels()
         appScope.launch { startUp() }
+        // Uploads can wait on things people fix outside Ember, like local network access
+        // in system settings. Coming back to Ember picks them up again.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                appScope.launch { resumeUploads() }
+            }
+        })
     }
 
     private suspend fun startUp() {
@@ -33,11 +41,18 @@ class EmberApp : Application() {
                 if (account != null) AppShortcuts.publish(this@EmberApp) else AppShortcuts.clear(this@EmberApp)
             }
         }
+        c.syncEngine.recoverInterrupted()
+        c.staging.prune(c.database.uploads().stagedIds().toSet())
         if (c.accounts.current() == null) return
         c.sync.reschedule(force = false)
-        // Pick up uploads that were waiting when the app last stopped.
-        val recent = c.database.uploads().observeRecent(500).first()
-        if (recent.any { it.status == UploadStatus.QUEUED && it.syncSourceId == null }) c.scheduler.kickUploads()
-        c.staging.prune(recent.filter { it.stagedPath != null }.map { it.id }.toSet())
+        resumeUploads()
+    }
+
+    /** Restarts the share queue when uploads wait and nothing stands in their way. */
+    private suspend fun resumeUploads() {
+        val c = container
+        val account = c.accounts.current() ?: return
+        if (account.problem != null || c.localNetwork.needsPermission(account.origin)) return
+        c.scheduler.resumeUploads(c.database.uploads().queuedCount())
     }
 }

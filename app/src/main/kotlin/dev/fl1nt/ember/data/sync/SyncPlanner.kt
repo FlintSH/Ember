@@ -57,7 +57,9 @@ object SyncPlanner {
             // Uploaded or permanently failed files never repeat. "Retry failed" clears failures.
             .filter { ledger[it.key] == null }
             .filter { item ->
-                val fresh = now - item.modifiedAtMillis < settleMillis
+                // A date far in the future, like from a camera with a wrong clock, says nothing
+                // about whether the file is still changing. Without this it would wait forever.
+                val fresh = item.modifiedAtMillis <= now + FUTURE_TOLERANCE_MILLIS && now - item.modifiedAtMillis < settleMillis
                 if (fresh) settling++
                 !fresh
             }
@@ -76,4 +78,6 @@ object SyncPlanner {
     }
 
     private val PARTIAL_SUFFIXES = listOf(".tmp", ".part", ".crdownload", ".download", ".partial")
+
+    private const val FUTURE_TOLERANCE_MILLIS = 60_000L
 }

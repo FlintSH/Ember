@@ -17,6 +17,7 @@ import dev.fl1nt.ember.api.FlareCredential
 import dev.fl1nt.ember.api.FlareOrigin
 import dev.fl1nt.ember.api.Visibility
 import dev.fl1nt.ember.data.FlareConnection
+import dev.fl1nt.ember.data.account.AccountProblem
 import dev.fl1nt.ember.data.account.AccountStore
 import dev.fl1nt.ember.data.db.EmberDatabase
 import dev.fl1nt.ember.data.db.FailureKind
@@ -65,11 +66,12 @@ class SyncEngineTest {
     private lateinit var uploader: Uploader
     private lateinit var staging: UploadStaging
     private lateinit var connection: FlareConnection
+    private lateinit var repository: UploadRepository
     private val found = mutableListOf<SourceItem>()
     private val scanner = SourceScanner { found.toList() }
 
     @Before
-    fun setUp() = runBlocking {
+    fun setUp() = runBlocking<Unit> {
         server = MockWebServer().apply { start() }
         db = Room.inMemoryDatabaseBuilder(context, EmberDatabase::class.java).allowMainThreadQueries().build()
         accounts = AccountStore(testDataStore(temp.newFolder()), FakeCipher())
@@ -83,6 +85,8 @@ class SyncEngineTest {
         staging = UploadStaging(context, temp.newFolder("staging"))
         uploader = Uploader(context, db, staging, FakeCipher(), accounts, settings, Notifier(context))
         connection = FlareConnection(accounts, OkHttpClient())
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+        repository = UploadRepository(context, db, staging, FakeCipher(), WorkScheduler(context, settings))
     }
 
     @After
@@ -96,6 +100,7 @@ class SyncEngineTest {
         scanner = scanner,
         uploader = uploader,
         connection = connection,
+        accounts = accounts,
         settings = settings,
         notifier = Notifier(context),
         localNetworkBlocked = { blocked },
@@ -116,15 +121,15 @@ class SyncEngineTest {
         return SourceItem(name, name, "image/png", file.length(), file.toURI().toString(), time, time)
     }
 
-    private suspend fun addSource(preset: UploadPreset = UploadPreset(), copyLink: Boolean = false): Long =
+    private suspend fun addSource(preset: UploadPreset = UploadPreset(), copyLink: Boolean = false, name: String = "Screenshots"): Long =
         db.sources().insert(
-            SyncSourceEntity(type = SourceType.FOLDER, name = "Screenshots", treeUri = "content://test/tree", sinceMillis = 0, presetJson = preset.encode(), copyLink = copyLink, createdAt = 0),
+            SyncSourceEntity(type = SourceType.FOLDER, name = name, treeUri = "content://test/$name", sinceMillis = 0, presetJson = preset.encode(), copyLink = copyLink, createdAt = 0),
         )
 
-    private fun run() = runBlocking { engine().run(mediaOnly = false, userInitiated = false, deadlineMillis = Long.MAX_VALUE) }
+    private fun run(): SyncRun = runBlocking { engine().run(mediaOnly = false, userInitiated = false, deadlineMillis = Long.MAX_VALUE) }
 
     @Test
-    fun `uploads new files once with the source's options`() = runBlocking {
+    fun `uploads new files once with the source's options`() = runBlocking<Unit> {
         val id = addSource(UploadPreset(visibility = Visibility.PRIVATE, folder = UploadPreset.Choice.Id("folder-9")), copyLink = true)
         found += listOf(file("a.png"), file("b.png"))
         server.enqueue(ok("a.png"))
@@ -148,7 +153,7 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `temporary failures retry later without duplicating history`() = runBlocking {
+    fun `temporary failures retry later without duplicating history`() = runBlocking<Unit> {
         val id = addSource()
         found += file("flaky.png")
         server.enqueue(error(503, "Try again"))
@@ -168,7 +173,7 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `files still being written are counted so a follow-up run picks them up`() = runBlocking {
+    fun `files still being written are counted so a follow-up run picks them up`() = runBlocking<Unit> {
         addSource()
         val fresh = file("recording.m4a").let { it.copy(addedAtMillis = System.currentTimeMillis(), modifiedAtMillis = System.currentTimeMillis()) }
         found += fresh
@@ -177,7 +182,7 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `a rejected token stops the run without marking files`() = runBlocking {
+    fun `a rejected token stops the run without marking files`() = runBlocking<Unit> {
         val id = addSource()
         found += listOf(file("one.png"), file("two.png"))
         server.enqueue(error(401, "Unauthorized"))
@@ -185,10 +190,21 @@ class SyncEngineTest {
         assertThat(run()).isEqualTo(SyncRun.Blocked(Attention.TOKEN_REJECTED))
         assertThat(server.requestCount).isEqualTo(1)
         assertThat(db.ledger().forSource(id)).isEmpty()
+        // The file waits for a reconnect instead of failing, and Home asks to reconnect.
+        val waiting = db.uploads().observeRecent(10).firstValue().single()
+        assertThat(waiting.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(waiting.failureKind).isEqualTo(FailureKind.AUTH)
+        assertThat(accounts.current()!!.problem).isEqualTo(AccountProblem.TOKEN_REJECTED)
+
+        // Once Flare accepts the token again, the problem clears.
+        server.enqueue(ok("one.png"))
+        server.enqueue(ok("two.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 2, failed = 0))
+        assertThat(accounts.current()!!.problem).isNull()
     }
 
     @Test
-    fun `a file Flare rejects is recorded and the rest continue`() = runBlocking {
+    fun `a file Flare rejects is recorded and the rest continue`() = runBlocking<Unit> {
         val id = addSource()
         found += listOf(file("huge.png", ageMinutes = 10), file("fine.png", ageMinutes = 5))
         server.enqueue(error(413, "The file exceeds the upload size limit."))
@@ -207,7 +223,7 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `respects the off switch, local network access, and the run deadline`() = runBlocking {
+    fun `respects the off switch, local network access, and the run deadline`() = runBlocking<Unit> {
         addSource()
         found += listOf(file("x.png"), file("y.png"))
         settings.update { it.copy(sync = it.sync.copy(enabled = false)) }
@@ -222,10 +238,8 @@ class SyncEngineTest {
     }
 
     @Test
-    fun `shared pastes upload from their staged copy and are cleaned up`() = runBlocking {
-        WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
+    fun `shared pastes upload from their staged copy and are cleaned up`() = runBlocking<Unit> {
         // The repository and the uploader share one staging area, as they do in the app.
-        val repository = UploadRepository(db, staging, FakeCipher(), WorkScheduler(context, settings))
         repository.enqueuePaste("# notes", "notes.md", UploadOrigin.TEXT_SELECTION, UploadPreset(), password = "pw")
         val queued = db.uploads().nextQueued()!!
         assertThat(File(queued.stagedPath!!).readText()).isEqualTo("# notes")
@@ -244,6 +258,198 @@ class SyncEngineTest {
         assertThat(done.stagedPath).isNull()
         assertThat(File(queued.stagedPath).exists()).isFalse()
         assertThat(accounts.current()!!.linkOrigin.toString()).isEqualTo("https://files.example.com")
+    }
+
+    @Test
+    fun `a file deleted before it uploads is skipped quietly`() = runBlocking<Unit> {
+        val id = addSource()
+        val gone = file("burst-1.png", ageMinutes = 10).also { File(temp.root, it.name).delete() }
+        found += listOf(gone, file("burst-2.png", ageMinutes = 5))
+        server.enqueue(ok("burst-2.png"))
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(server.requestCount).isEqualTo(1)
+        assertThat(db.ledger().get(id, "burst-1.png")!!.state).isEqualTo(LedgerState.SKIPPED)
+        assertThat(db.uploads().observeRecent(10).firstValue().map { it.fileName }).containsExactly("burst-2.png")
+    }
+
+    @Test
+    fun `pausing or removing a folder stops a running sync before its next file`() = runBlocking<Unit> {
+        val paused = addSource(name = "Camera")
+        val removed = addSource(name = "Downloads")
+        found += listOf(file("one.png", ageMinutes = 10), file("two.png", ageMinutes = 5))
+        server.dispatcher = object : mockwebserver3.Dispatcher() {
+            override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                // Someone acts while the first file uploads.
+                runBlocking {
+                    db.sources().get(paused)?.let { db.sources().update(it.copy(enabled = false)) }
+                    db.sources().delete(removed)
+                }
+                return ok("one.png")
+            }
+        }
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(server.requestCount).isEqualTo(1)
+        assertThat(db.ledger().forSource(removed)).isEmpty()
+    }
+
+    @Test
+    fun `Try again on a failed synced file uploads it with fresh attempts`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("big.png")
+        server.enqueue(error(413, "Too large"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 1))
+        val failed = db.uploads().observeRecent(10).firstValue().single()
+        assertThat(failed.status).isEqualTo(UploadStatus.FAILED)
+
+        assertThat(repository.retry(failed.id)).isTrue()
+        assertThat(db.ledger().get(id, "big.png")).isNull()
+        server.enqueue(ok("big.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        val done = db.uploads().observeRecent(10).firstValue().single()
+        assertThat(done.status).isEqualTo(UploadStatus.DONE)
+        assertThat(done.attempts).isEqualTo(1)
+    }
+
+    @Test
+    fun `cancelling a waiting synced file keeps it from uploading`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("draft.png")
+        server.enqueue(error(503, "Try again"))
+        assertThat(run()).isInstanceOf(SyncRun.Retry::class.java)
+
+        repository.cancel(db.uploads().observeRecent(10).firstValue().single().id)
+        assertThat(db.ledger().get(id, "draft.png")!!.state).isEqualTo(LedgerState.SKIPPED)
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 0))
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `a file uploaded just before Ember stopped isn't uploaded again`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("sent.png")
+        server.enqueue(ok("sent.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        // Ember was stopped after Flare took the file but before the ledger heard.
+        db.ledger().deleteForSource(id)
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 0))
+        assertThat(server.requestCount).isEqualTo(1)
+        assertThat(db.ledger().get(id, "sent.png")!!.state).isEqualTo(LedgerState.UPLOADED)
+    }
+
+    @Test
+    fun `temporary failures never turn synced files into failures`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("far-from-home.png")
+        repeat(Uploader.MAX_ATTEMPTS + 2) {
+            server.enqueue(error(503, "Unreachable"))
+            assertThat(run()).isInstanceOf(SyncRun.Retry::class.java)
+        }
+        val waiting = db.uploads().observeRecent(10).firstValue().single()
+        assertThat(waiting.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(db.ledger().forSource(id)).isEmpty()
+    }
+
+    @Test
+    fun `interrupted uploads go back to the queue and orphans of removed folders go`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("cut-off.png")
+        server.enqueue(error(503, "Try again"))
+        run()
+        val row = db.uploads().observeRecent(10).firstValue().single()
+        db.uploads().update(row.copy(status = UploadStatus.RUNNING))
+        db.uploads().insert(listOf(row.copy(id = "orphan", syncSourceId = 999, syncItemKey = "x")))
+
+        engine().recoverInterrupted()
+        val rows = db.uploads().observeRecent(10).firstValue()
+        assertThat(rows.map { it.id }).containsExactly(row.id)
+        assertThat(rows.single().status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(db.sources().get(id)).isNotNull()
+    }
+
+    @Test
+    fun `a queued file that left the folder is dropped`() = runBlocking<Unit> {
+        addSource()
+        found += file("moved.png")
+        server.enqueue(error(503, "Try again"))
+        run()
+        found.clear()
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 0))
+        assertThat(db.uploads().observeRecent(10).firstValue()).isEmpty()
+    }
+
+    @Test
+    fun `one folder that can't be listed doesn't stop the others`() = runBlocking<Unit> {
+        val broken = addSource(name = "SD card")
+        val missing = addSource(name = "USB drive")
+        val working = addSource(name = "Screenshots")
+        val shot = file("shot.png")
+        val engine = SyncEngine(
+            db = db,
+            scanner = { source ->
+                when (source.id) {
+                    broken -> throw IllegalStateException("provider crashed")
+                    missing -> throw FolderMissingException("gone")
+                    else -> listOf(shot)
+                }
+            },
+            uploader = uploader,
+            connection = connection,
+            accounts = accounts,
+            settings = settings,
+            notifier = Notifier(context),
+            localNetworkBlocked = { false },
+            mediaAccess = { MediaAccess.FULL },
+        )
+        server.enqueue(ok("shot.png"))
+
+        assertThat(engine.run(mediaOnly = false, userInitiated = false, deadlineMillis = Long.MAX_VALUE)).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(db.sources().get(broken)!!.lastError).isEqualTo(SyncEngine.SCAN_ERROR)
+        assertThat(db.sources().get(missing)!!.lastError).isEqualTo(SyncEngine.FOLDER_MISSING_ERROR)
+        assertThat(db.sources().get(working)!!.lastError).isNull()
+    }
+
+    @Test
+    fun `a refusal that would repeat pauses only that folder`() = runBlocking<Unit> {
+        val id = addSource()
+        found += listOf(file("first.png", ageMinutes = 10), file("second.png", ageMinutes = 5))
+        server.enqueue(error(403, "Uploads are disabled for your role."))
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 1))
+        assertThat(server.requestCount).isEqualTo(1)
+        assertThat(db.sources().get(id)!!.lastError).isEqualTo("Uploads are disabled for your role.")
+        assertThat(db.ledger().get(id, "second.png")).isNull()
+    }
+
+    @Test
+    fun `a password survives a failed attempt and is sent when trying again`() = runBlocking<Unit> {
+        repository.enqueuePaste("secret notes", "notes.txt", UploadOrigin.PASTE, UploadPreset(), password = "hunter2")
+        val queued = db.uploads().nextQueued()!!
+        server.enqueue(error(413, "Too large for now"))
+        assertThat(uploader.upload(queued, connection.client()!!)).isInstanceOf(Uploader.Outcome.Failed::class.java)
+        val failed = db.uploads().get(queued.id)!!
+        assertThat(failed.status).isEqualTo(UploadStatus.FAILED)
+        assertThat(failed.sealedPassword).isNotNull()
+
+        assertThat(repository.retry(queued.id)).isTrue()
+        server.enqueue(ok("notes.txt"))
+        assertThat(uploader.upload(db.uploads().get(queued.id)!!, connection.client()!!)).isInstanceOf(Uploader.Outcome.Uploaded::class.java)
+        server.takeRequest()
+        assertThat(server.takeRequest().body!!.utf8()).contains("name=\"password\"\r\n\r\nhunter2")
+    }
+
+    @Test
+    fun `an upload whose password can't be unlocked fails instead of going out without it`() = runBlocking<Unit> {
+        repository.enqueuePaste("secret notes", "notes.txt", UploadOrigin.PASTE, UploadPreset(), password = "hunter2")
+        val queued = db.uploads().nextQueued()!!.copy(sealedPassword = "unreadable")
+
+        val outcome = uploader.upload(queued, connection.client()!!)
+        assertThat(outcome).isInstanceOf(Uploader.Outcome.Failed::class.java)
+        assertThat(server.requestCount).isEqualTo(0)
+        assertThat(db.uploads().get(queued.id)!!.failureMessage).contains("password")
     }
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()

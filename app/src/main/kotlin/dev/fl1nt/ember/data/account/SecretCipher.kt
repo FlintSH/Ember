@@ -34,14 +34,20 @@ class KeystoreSecretCipher(private val alias: String = "ember.credentials") : Se
     override fun decrypt(encoded: String): String {
         val parts = encoded.split(SEPARATOR)
         if (parts.size != 2) throw GeneralSecurityException("Malformed secret")
+        // A new key can't decrypt anything, so a missing key is an error, not a reason to make one.
+        val key = existingKey() ?: throw GeneralSecurityException("The key for this secret is gone")
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, decode(parts[0])))
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, decode(parts[0])))
         return String(cipher.doFinal(decode(parts[1])), Charsets.UTF_8)
     }
 
-    private fun key(): SecretKey {
+    private fun existingKey(): SecretKey? {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
-        (store.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        return (store.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.secretKey
+    }
+
+    private fun key(): SecretKey {
+        existingKey()?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)

@@ -12,12 +12,14 @@ import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.fl1nt.ember.api.Expiration
 import dev.fl1nt.ember.api.Visibility
+import dev.fl1nt.ember.data.account.AccountProblem
 import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.settings.EmberSettings
 import dev.fl1nt.ember.data.settings.UploadPreset
 import dev.fl1nt.ember.data.sync.NewSource
 import dev.fl1nt.ember.data.sync.SyncProgress
 import dev.fl1nt.ember.system.MediaAccess
+import dev.fl1nt.ember.ui.components.FolderChoices
 import dev.fl1nt.ember.ui.home.HomeScreen
 import dev.fl1nt.ember.ui.home.HomeState
 import dev.fl1nt.ember.ui.library.LibraryScreen
@@ -113,6 +115,17 @@ class ScreenshotTest {
     fun homeLight() = snap("home-light", ThemeMode.LIGHT) { HomeScreen(home, {}, {}, {}, {}, {}, {}, {}, {}) }
 
     @Test
+    fun homeNeedsAttention() = snap("home-attention") {
+        val blocked = home.copy(
+            account = SampleData.account.copy(problem = AccountProblem.TOKEN_REJECTED),
+            syncRunning = false,
+            syncProgress = null,
+            needsLocalNetwork = true,
+        )
+        HomeScreen(blocked, {}, {}, {}, {}, {}, {}, {}, {})
+    }
+
+    @Test
     fun libraryRecent() = snap("library-recent") {
         LibraryScreen(LibraryState(LibraryTab.RECENT, SampleData.account, SampleData.uploads), {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
     }
@@ -152,7 +165,7 @@ class ScreenshotTest {
                 mediaAccess = MediaAccess.FULL,
                 selected = NewSource.Album(SampleData.albums[1]),
                 options = SourceOptions(copyLink = true, notifyEach = true, preset = UploadPreset(folder = UploadPreset.Choice.Id("a", "Screenshots"))),
-                folders = SampleData.folders,
+                folders = FolderChoices.Loaded(SampleData.folders),
             ),
             {}, {}, {}, {}, {}, {},
         )
@@ -177,10 +190,10 @@ class ScreenshotTest {
     }
 
     @Test
-    fun settings() = snap("settings") { SettingsScreen(SettingsState(SampleData.account, EmberSettings(), SampleData.folders), {}, {}, {}, {}) }
+    fun settings() = snap("settings") { SettingsScreen(SettingsState(SampleData.account, EmberSettings(), FolderChoices.Loaded(SampleData.folders)), {}, {}, {}, {}) }
 
     @Test
-    fun settingsLight() = snap("settings-light", ThemeMode.LIGHT) { SettingsScreen(SettingsState(SampleData.account, EmberSettings(), SampleData.folders), {}, {}, {}, {}) }
+    fun settingsLight() = snap("settings-light", ThemeMode.LIGHT) { SettingsScreen(SettingsState(SampleData.account, EmberSettings(), FolderChoices.Loaded(SampleData.folders)), {}, {}, {}, {}) }
 
     @Test
     fun shareFiles() = snap("share-files") {
@@ -192,7 +205,7 @@ class ScreenshotTest {
                         SharedFile(SampleData.sharedUri, "IMG_20261023_183344.jpg", 3_400_000, "image/jpeg"),
                         SharedFile(SampleData.sharedUri, "boarding-pass.pdf", 182_000, "application/pdf"),
                     ),
-                    folders = SampleData.folders,
+                    folders = FolderChoices.Loaded(SampleData.folders),
                 ),
             ),
             noop,

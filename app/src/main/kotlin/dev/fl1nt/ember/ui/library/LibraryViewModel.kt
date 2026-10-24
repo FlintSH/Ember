@@ -4,11 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.api.FileQuery
+import dev.fl1nt.ember.api.FlareException
 import dev.fl1nt.ember.api.RemoteFile
 import dev.fl1nt.ember.data.account.Account
 import dev.fl1nt.ember.data.db.ShortLinkEntity
 import dev.fl1nt.ember.data.db.UploadEntity
-import dev.fl1nt.ember.ui.describeError
+import dev.fl1nt.ember.system.describeError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -81,17 +82,18 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
 
     fun refreshFiles() {
         pageJob?.cancel()
-        files.update { it.copy(items = emptyList(), page = 0, endReached = false, error = null) }
+        // The cancelled page can't clear its own spinner, so start clean.
+        files.update { it.copy(items = emptyList(), page = 0, endReached = false, loading = false, error = null) }
         loadMore()
     }
 
     fun loadMore() {
         val current = files.value
         if (current.loading || current.endReached) return
+        files.update { it.copy(loading = true, error = null) }
         pageJob = viewModelScope.launch {
-            files.update { it.copy(loading = true, error = null) }
             try {
-                val client = container.connection.client() ?: return@launch
+                val client = container.connection.client() ?: throw FlareException.Unauthorized()
                 val page = client.listFiles(FileQuery(page = current.page + 1, limit = PAGE_SIZE, search = current.query.ifBlank { null }))
                 files.update {
                     it.copy(

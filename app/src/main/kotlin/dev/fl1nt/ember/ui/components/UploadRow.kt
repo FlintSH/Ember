@@ -1,6 +1,5 @@
 package dev.fl1nt.ember.ui.components
 
-import androidx.core.net.toUri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.data.db.FailureKind
 import dev.fl1nt.ember.data.db.UploadEntity
@@ -53,6 +53,7 @@ fun failureLabel(kind: FailureKind?): String = stringResource(
         FailureKind.TOO_LARGE -> R.string.failure_too_large
         FailureKind.REJECTED -> R.string.failure_rejected
         FailureKind.SOURCE_GONE -> R.string.failure_source_gone
+        FailureKind.NO_ACCESS -> R.string.failure_no_access
         FailureKind.TRANSIENT -> R.string.failure_transient
         FailureKind.OTHER, null -> R.string.failure_other
     },
@@ -98,7 +99,13 @@ fun UploadRow(upload: UploadEntity, onClick: () -> Unit, onCopy: (() -> Unit)?, 
 private fun StatusFor(upload: UploadEntity) {
     when (upload.status) {
         UploadStatus.QUEUED -> StatusPill(
-            stringResource(if (upload.failureKind == FailureKind.TRANSIENT) R.string.status_retrying else R.string.status_waiting),
+            stringResource(
+                when (upload.failureKind) {
+                    FailureKind.TRANSIENT -> R.string.status_retrying
+                    FailureKind.AUTH -> R.string.status_paused
+                    else -> R.string.status_waiting
+                },
+            ),
             icon = Lucide.Clock,
         )
         UploadStatus.RUNNING -> StatusPill(stringResource(R.string.status_uploading), tone = Tone.FLAME, icon = Lucide.CloudUpload)

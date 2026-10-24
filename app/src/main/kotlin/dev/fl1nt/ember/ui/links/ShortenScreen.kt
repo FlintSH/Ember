@@ -32,6 +32,7 @@ import dev.fl1nt.ember.data.db.ShortLinkEntity
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.Links
 import dev.fl1nt.ember.system.SharedText
+import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.ui.components.EmberTextField
 import dev.fl1nt.ember.ui.components.FlareCard
 import dev.fl1nt.ember.ui.components.GhostButton
@@ -42,7 +43,6 @@ import dev.fl1nt.ember.ui.components.OutlineButton
 import dev.fl1nt.ember.ui.components.PrimaryButton
 import dev.fl1nt.ember.ui.components.ScreenHeader
 import dev.fl1nt.ember.ui.components.Tone
-import dev.fl1nt.ember.ui.describeError
 import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
 import kotlinx.coroutines.CancellationException

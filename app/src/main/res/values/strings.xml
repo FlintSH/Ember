@@ -44,9 +44,13 @@
         <item quantity="other">%1$d files couldn\'t be uploaded</item>
     </plurals>
     <string name="attention_token_title">Flare rejected Ember\'s token</string>
-    <string name="attention_token_text">Uploads are paused. The token may have expired, been revoked, or lost a permission. Reconnect in Settings.</string>
+    <string name="attention_token_text">Uploads are paused. The token may have expired, been revoked, or lost a permission. Open Ember to reconnect.</string>
+    <string name="attention_token_unreadable_title">Ember can\'t read its saved token</string>
+    <string name="attention_token_unreadable_text">Uploads are paused. This can happen after this phone\'s security keys are reset. Open Ember to reconnect.</string>
     <string name="attention_local_network_title">Ember can\'t reach your Flare</string>
     <string name="attention_local_network_text">Your Flare server is on your local network. Allow local network access for Ember to keep uploading.</string>
+    <string name="attention_folder_missing_title">A synced folder is missing</string>
+    <string name="attention_folder_missing_text">Ember can\'t find %1$s. Reconnect the storage it\'s on, or remove it from Sync.</string>
     <string name="attention_folder_title">Ember lost access to a folder</string>
     <string name="attention_folder_text">Choose %1$s again in Sync so Ember can keep uploading from it.</string>
     <string name="attention_media_title">Photo access is off</string>
@@ -63,8 +67,12 @@
     <string name="action_done">Done</string>
     <string name="action_open">Open</string>
     <string name="action_open_settings">Open settings</string>
+    <string name="action_reconnect">Reconnect</string>
+    <string name="problem_token_rejected">Uploads are paused. The token may have expired, been revoked, or lost a permission.</string>
+    <string name="problem_token_unreadable">Uploads are paused. This can happen after this phone\'s security keys are reset.</string>
+    <string name="local_network_needed">Your Flare server is on your local network. Allow local network access so uploads and sync can continue.</string>
+    <string name="action_allow">Allow</string>
     <string name="action_paste">Paste</string>
-    <string name="action_refresh">Refresh</string>
     <string name="action_remove_from_history">Remove from history</string>
     <string name="action_rename">Rename</string>
     <string name="action_retry">Try again</string>
@@ -91,23 +99,32 @@
     <string name="error_refused">%1$s refused the connection. Check the address and port, and that Flare is running.</string>
     <string name="error_network">Couldn\'t reach %1$s. Check the address and your connection.</string>
     <string name="error_generic">Something went wrong. Try again.</string>
+    <string name="error_no_space">This phone is out of storage space. Free up some space and try again.</string>
+    <string name="error_secure_storage">Ember couldn\'t use this phone\'s secure storage. Restart your phone and try again.</string>
+    <string name="error_file_gone">The file is no longer on this phone, so there\'s nothing to upload.</string>
+    <string name="error_file_access">Ember lost permission to read this file.</string>
+    <string name="error_read">Ember couldn\'t read this file.</string>
+    <string name="error_password_locked">Ember couldn\'t unlock the password for this upload. Share the file again to set a new one.</string>
 
     <string name="failure_auth">Token rejected</string>
     <string name="failure_permission">Not allowed</string>
     <string name="failure_too_large">Too large</string>
     <string name="failure_rejected">Rejected by Flare</string>
     <string name="failure_source_gone">File unavailable</string>
+    <string name="failure_no_access">No access</string>
     <string name="failure_transient">Waiting to retry</string>
     <string name="failure_other">Upload failed</string>
 
     <!-- Statuses -->
     <string name="status_waiting">Waiting</string>
     <string name="status_retrying">Retrying soon</string>
+    <string name="status_paused">Paused</string>
     <string name="status_uploading">Uploading</string>
     <string name="status_uploaded">Uploaded</string>
     <string name="status_cancelled">Cancelled</string>
     <string name="upload_waiting">Waiting for a connection. Ember uploads it as soon as it can.</string>
     <string name="upload_waiting_retry">The last attempt didn\'t finish. Ember tries again automatically.</string>
+    <string name="upload_waiting_reconnect">Paused until you reconnect Ember. It uploads as soon as you do.</string>
     <string name="upload_in_progress">Uploading now.</string>
 
     <string name="origin_share">Shared</string>
@@ -190,6 +207,7 @@
     <string name="connect_error_address">Enter an address like files.example.com.</string>
     <string name="connect_error_token_missing">Paste your Flare token.</string>
     <string name="connect_error_upload_scope">This token can\'t upload. Create a token with Upload files and try again.</string>
+    <string name="connect_error_upload_unknown">Flare didn\'t say whether this token can upload. Try again, and check that the address points at Flare.</string>
     <string name="connect_error_upload_role">Your Flare account isn\'t allowed to upload. Ask your administrator to check your roles.</string>
     <string name="connect_error_local_network_denied">Ember needs local network access to reach a Flare server on your network. Allow it in Ember\'s app settings.</string>
     <string name="connect_http_title">Send your token unencrypted?</string>
@@ -328,6 +346,7 @@
     </plurals>
     <string name="sync_status_up_to_date">Up to date, checked %1$s</string>
     <string name="sync_status_scheduled">Waiting for the first check</string>
+    <string name="sync_status_attention">Needs attention</string>
     <string name="sync_wifi_only">Wi-Fi only</string>
     <string name="sync_any_network">Any network</string>
     <string name="sync_constraints_charging">%1$s, while charging</string>
@@ -343,6 +362,9 @@
     <string name="sync_type_folder">Folder</string>
     <string name="sync_source_added">Folder added. Ember is checking it now.</string>
     <string name="sync_error_media">Photo access is off. Allow it to keep syncing.</string>
+    <string name="sync_error_folder_missing">Ember can\'t find this folder. If it\'s on an SD card or USB drive, reconnect it. Otherwise remove the folder and add it again.</string>
+    <string name="sync_error_scan">Ember couldn\'t check this folder. It tries again on the next sync.</string>
+    <string name="sync_error_upload">Paused after a failed upload. %1$s</string>
     <string name="sync_error_folder">Ember lost access to this folder. Remove it and add it again.</string>
     <plurals name="sync_uploaded_count">
         <item quantity="one">%1$s uploaded</item>

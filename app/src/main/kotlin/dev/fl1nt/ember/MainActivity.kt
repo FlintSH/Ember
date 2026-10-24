@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_DESTINATION = "dev.fl1nt.ember.extra.DESTINATION"
         const val EXTRA_SHORTCUT_ID = "dev.fl1nt.ember.extra.SHORTCUT_ID"
+        const val DESTINATION_HOME = "home"
         const val DESTINATION_RECENT = "recent"
         const val DESTINATION_SYNC = "sync"
         const val DESTINATION_SETTINGS = "settings"

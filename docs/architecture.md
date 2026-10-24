@@ -45,7 +45,15 @@ system/        Clipboard, local network detection, permissions, tile, shortcuts
 
 Shares, pastes, and picked files become rows in the `uploads` table and run in `UploadWorker`, a unique WorkManager chain that processes one upload at a time. Shared files are staged first, because Android revokes another app's read grant when the share sheet closes. The worker promotes itself to a foreground service while Android allows it, and otherwise runs as a regular job.
 
-`Uploader` sends one row and records the outcome. Temporary failures put the row back in the queue and the worker returns `retry()`, so WorkManager backs off. Permanent failures are recorded with Flare's message.
+`Uploader` sends one row and records the outcome:
+
+- Temporary failures put the row back in the queue and the worker returns `retry()`, so WorkManager backs off. Shares give up after 8 attempts; synced files keep waiting.
+- A rejected token keeps rows queued and records an `AccountProblem`, which Home shows with **Reconnect**. A token the Keystore can no longer decrypt is recorded the same way.
+- Permanent failures are recorded with a readable message: Flare's own text, or one of Ember's for local problems such as a full disk.
+- Once Flare has a file, the bookkeeping runs under `NonCancellable`, so stopping the work at that moment doesn't send the file again.
+- The sealed password stays on a row until it uploads or is removed, so retries keep it. If it can't be decrypted, the upload fails instead of going out without it.
+
+Uploads blocked by something outside Ember, like Android 17's local network access, resume when Ember next comes to the foreground.
 
 ### Sync
 
@@ -53,7 +61,9 @@ Shares, pastes, and picked files become rows in the `uploads` table and run in `
 
 1. Scans: `MediaStoreScanner` queries an album's bucket, and `DocumentTreeScanner` walks a picked folder's document tree.
 2. Plans with `SyncPlanner`, a pure function: skip files in the ledger, files older than the source's start, hidden or partial files, and files still being written; order oldest first.
-3. Uploads each file through `Uploader` and records it in the ledger as uploaded or permanently failed. Temporary failures stay out of the ledger and retry on the next run.
+3. Uploads each file through `Uploader` and records it in the ledger as uploaded, permanently failed, or skipped (deleted or cancelled). Temporary failures stay out of the ledger and retry on the next run.
+
+One source that can't be scanned records why and the others continue. Before each file the engine re-reads its source, so pausing or removing a folder stops a running sync. Each run first puts rows cut off by process death back in the queue, and drops unfinished rows whose folder or file is gone.
 
 `SyncWorker` runs the engine for at most 8 minutes, or 30 while in the foreground, then schedules a continuation. Scheduling uses three kinds of work: a periodic safety net, a one-time job triggered by MediaStore changes that re-arms itself after each run, and expedited jobs for **Sync now**.
 

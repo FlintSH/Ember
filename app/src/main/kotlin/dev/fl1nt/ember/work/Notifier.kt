@@ -15,8 +15,8 @@ import androidx.work.ForegroundInfo
 import dev.fl1nt.ember.MainActivity
 import dev.fl1nt.ember.R
 
-/** Why Ember needs someone to look at it. */
-enum class Attention { TOKEN_REJECTED, LOCAL_NETWORK, FOLDER_ACCESS, MEDIA_ACCESS }
+/** Why Ember needs someone to look at it. Each has its own notification, so one doesn't hide another. */
+enum class Attention { TOKEN_REJECTED, TOKEN_UNREADABLE, LOCAL_NETWORK, FOLDER_ACCESS, FOLDER_MISSING, MEDIA_ACCESS }
 
 class Notifier(private val context: Context) {
 
@@ -93,23 +93,36 @@ class Notifier(private val context: Context) {
     fun attention(reason: Attention, detail: String? = null) {
         val (title, text) = when (reason) {
             Attention.TOKEN_REJECTED -> R.string.attention_token_title to R.string.attention_token_text
+            Attention.TOKEN_UNREADABLE -> R.string.attention_token_unreadable_title to R.string.attention_token_unreadable_text
             Attention.LOCAL_NETWORK -> R.string.attention_local_network_title to R.string.attention_local_network_text
             Attention.FOLDER_ACCESS -> R.string.attention_folder_title to R.string.attention_folder_text
+            Attention.FOLDER_MISSING -> R.string.attention_folder_missing_title to R.string.attention_folder_missing_text
             Attention.MEDIA_ACCESS -> R.string.attention_media_title to R.string.attention_media_text
         }
-        val body = if (reason == Attention.FOLDER_ACCESS) context.getString(text, detail.orEmpty()) else context.getString(text)
+        val body = when (reason) {
+            Attention.FOLDER_ACCESS, Attention.FOLDER_MISSING -> context.getString(text, detail.orEmpty())
+            else -> context.getString(text)
+        }
+        // Home shows what to do about the connection; Sync shows folder and photo access.
+        val destination = when (reason) {
+            Attention.TOKEN_REJECTED, Attention.TOKEN_UNREADABLE, Attention.LOCAL_NETWORK -> MainActivity.DESTINATION_HOME
+            Attention.FOLDER_ACCESS, Attention.FOLDER_MISSING, Attention.MEDIA_ACCESS -> MainActivity.DESTINATION_SYNC
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_ATTENTION)
             .setSmallIcon(R.drawable.ic_ember_notification)
             .setContentTitle(context.getString(title))
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(openApp(if (reason == Attention.TOKEN_REJECTED) MainActivity.DESTINATION_SETTINGS else MainActivity.DESTINATION_SYNC))
+            .setContentIntent(openApp(destination))
             // Scheduled syncs repeat the check; only the first one should make a sound.
             .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .build()
-        post(ID_ATTENTION, notification)
+        post(ID_ATTENTION_BASE + reason.ordinal, notification)
     }
+
+    /** Clears an alert once its problem is solved, such as after reconnecting. */
+    fun resolve(reason: Attention) = manager.cancel(ID_ATTENTION_BASE + reason.ordinal)
 
     private fun uploadProgress(fileName: String, sent: Long, total: Long, remaining: Int): Notification {
         val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
@@ -203,8 +216,8 @@ class Notifier(private val context: Context) {
         const val CHANNEL_ATTENTION = "attention"
         const val ID_UPLOAD_PROGRESS = 1001
         const val ID_SYNC_PROGRESS = 1002
-        const val ID_ATTENTION = 1003
         const val ID_SYNC_SUMMARY = 1004
+        private const val ID_ATTENTION_BASE = 1100
         private const val RESULT_BASE = 0x100000
         private const val GROUP_RESULTS = "dev.fl1nt.ember.results"
     }

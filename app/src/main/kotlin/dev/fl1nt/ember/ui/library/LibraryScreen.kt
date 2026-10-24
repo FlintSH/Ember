@@ -60,8 +60,8 @@ import dev.fl1nt.ember.ui.components.ScreenHeader
 import dev.fl1nt.ember.ui.components.SegmentedControl
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.UploadRow
-import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.components.countString
+import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
 import dev.fl1nt.ember.ui.uploads.UploadSheet
 import java.time.Instant
@@ -105,7 +105,7 @@ fun LibraryRoute(initialTab: LibraryTab?, onShorten: () -> Unit, onSnackbar: (St
     selectedLink?.let { link ->
         LinkSheet(
             link,
-            canDelete = state.account?.capabilities?.manageLinks?.isGranted == true,
+            canDelete = state.account?.capabilities?.manageLinks?.isDenied == false,
             onDismiss = { selectedLink = null },
             onDelete = {
                 viewModel.deleteLink(link.id, onSnackbar)
@@ -186,7 +186,8 @@ private fun LazyListScope.recentItems(recent: List<UploadEntity>, onSelect: (Upl
 }
 
 private fun LazyListScope.fileItems(state: LibraryState, onSearch: (String) -> Unit, onRefresh: () -> Unit, onSelect: (RemoteFile) -> Unit) {
-    val canRead = state.account?.capabilities?.readFiles?.isGranted == true
+    // Try unless Flare said no; an unknown answer at connect time shouldn't hide the library.
+    val canRead = state.account?.capabilities?.readFiles?.isDenied == false
     if (!canRead) {
         item {
             EmptyState(Lucide.Lock, stringResource(R.string.library_files_locked_title), stringResource(R.string.library_files_locked_body))
@@ -234,10 +235,10 @@ private fun LazyListScope.linkItems(state: LibraryState, onShorten: () -> Unit, 
     val capabilities = state.account?.capabilities
     item {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (capabilities?.manageLinks?.isGranted == true) {
+            if (capabilities?.manageLinks?.isDenied == false) {
                 PrimaryButton(stringResource(R.string.links_shorten_action), onClick = onShorten, icon = Lucide.Plus, modifier = Modifier.fillMaxWidth())
             }
-            if (capabilities?.readLinks?.isGranted != true) Notice(stringResource(R.string.links_local_only))
+            if (capabilities?.readLinks?.isDenied != false) Notice(stringResource(R.string.links_local_only))
             state.linksState.error?.let { Notice(it, tone = Tone.DANGER, action = { GhostButton(stringResource(R.string.action_try_again), onClick = onRefresh) }) }
         }
     }

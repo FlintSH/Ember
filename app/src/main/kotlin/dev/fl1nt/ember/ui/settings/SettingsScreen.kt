@@ -31,16 +31,19 @@ import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.BuildConfig
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.api.FlareCredential
-import dev.fl1nt.ember.api.RemoteFolder
+import dev.fl1nt.ember.api.FlareException
 import dev.fl1nt.ember.data.account.Account
+import dev.fl1nt.ember.data.account.AccountProblem
 import dev.fl1nt.ember.data.settings.EmberSettings
 import dev.fl1nt.ember.data.settings.LinkFormat
 import dev.fl1nt.ember.system.Links
+import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.ui.components.DangerButton
 import dev.fl1nt.ember.ui.components.EmberTextField
 import dev.fl1nt.ember.ui.components.ExpirationRow
 import dev.fl1nt.ember.ui.components.ExpiryActionRow
 import dev.fl1nt.ember.ui.components.FlareCard
+import dev.fl1nt.ember.ui.components.FolderChoices
 import dev.fl1nt.ember.ui.components.FolderRow
 import dev.fl1nt.ember.ui.components.GhostButton
 import dev.fl1nt.ember.ui.components.Hairline
@@ -55,7 +58,6 @@ import dev.fl1nt.ember.ui.components.SettingRow
 import dev.fl1nt.ember.ui.components.SwitchRow
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.VisibilityRow
-import dev.fl1nt.ember.ui.describeError
 import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
 import dev.fl1nt.ember.ui.onboarding.CapabilityLine
@@ -73,13 +75,13 @@ import kotlinx.coroutines.launch
 data class SettingsState(
     val account: Account? = null,
     val settings: EmberSettings = EmberSettings(),
-    val folders: List<RemoteFolder>? = null,
+    val folders: FolderChoices = FolderChoices.Loading,
     val checking: Boolean = false,
     val checkError: String? = null,
 )
 
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
-    private val folders = MutableStateFlow<List<RemoteFolder>?>(null)
+    private val folders = MutableStateFlow<FolderChoices>(FolderChoices.Loading)
     private val checking = MutableStateFlow(false)
     private val checkError = MutableStateFlow<String?>(null)
 
@@ -103,8 +105,18 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         checking.value = true
         checkError.value = null
         try {
-            val client = container.connection.client() ?: return@launch
-            container.accounts.updateCapabilities(client.probeCapabilities())
+            // No client while connected means the token can't be read, which Home already explains.
+            val client = container.connection.client() ?: throw FlareException.Unauthorized()
+            val capabilities = try {
+                client.probeCapabilities()
+            } catch (refused: FlareException.Unauthorized) {
+                container.accounts.reportProblem(AccountProblem.TOKEN_REJECTED)
+                throw refused
+            }
+            container.accounts.updateCapabilities(capabilities)
+            // Flare accepted the token, so anything paused on it can continue.
+            container.accounts.clearProblem()
+            container.scheduler.resumeUploads(container.database.uploads().queuedCount())
             folders.value = fetchFolders(container)
         } catch (cancelled: CancellationException) {
             throw cancelled

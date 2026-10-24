@@ -54,7 +54,7 @@ class AppContainer(val application: Application) {
     val connection = FlareConnection(accounts, http)
     val staging = UploadStaging(app)
     val uploader = Uploader(app, database, staging, cipher, accounts, settings, notifier)
-    val uploads = UploadRepository(database, staging, cipher, scheduler)
+    val uploads = UploadRepository(app, database, staging, cipher, scheduler)
     val links = LinksRepository(database, connection, accounts)
     val sync = SyncRepository(database, app.contentResolver, MediaAlbums(app.contentResolver), settings, scheduler)
     val syncEngine = SyncEngine(
@@ -62,6 +62,7 @@ class AppContainer(val application: Application) {
         scanner = DefaultSourceScanner(MediaStoreScanner(app.contentResolver), DocumentTreeScanner(app.contentResolver)),
         uploader = uploader,
         connection = connection,
+        accounts = accounts,
         settings = settings,
         notifier = notifier,
         localNetworkBlocked = localNetwork::needsPermission,

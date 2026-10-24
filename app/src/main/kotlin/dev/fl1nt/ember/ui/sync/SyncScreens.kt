@@ -38,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -62,12 +61,14 @@ import dev.fl1nt.ember.ui.components.ExpirationRow
 import dev.fl1nt.ember.ui.components.FileThumb
 import dev.fl1nt.ember.ui.components.FlameProgress
 import dev.fl1nt.ember.ui.components.FlareCard
+import dev.fl1nt.ember.ui.components.FolderChoices
 import dev.fl1nt.ember.ui.components.FolderRow
 import dev.fl1nt.ember.ui.components.Formats
 import dev.fl1nt.ember.ui.components.GhostButton
 import dev.fl1nt.ember.ui.components.Hairline
 import dev.fl1nt.ember.ui.components.IconAction
 import dev.fl1nt.ember.ui.components.IconTile
+import dev.fl1nt.ember.ui.components.LocalNetworkNotice
 import dev.fl1nt.ember.ui.components.Notice
 import dev.fl1nt.ember.ui.components.OutlineButton
 import dev.fl1nt.ember.ui.components.PrimaryButton
@@ -79,8 +80,9 @@ import dev.fl1nt.ember.ui.components.SwitchRow
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.UploadRow
 import dev.fl1nt.ember.ui.components.VisibilityRow
-import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.components.countString
+import dev.fl1nt.ember.ui.components.rememberLocalNetworkRequest
+import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
 
 fun sourceIcon(source: SyncSourceEntity): ImageVector = when {
@@ -98,6 +100,7 @@ fun SyncRoute(onAdd: () -> Unit, onOpen: (Long) -> Unit, onOpenSettings: () -> U
         viewModel.refreshPermissions()
         onPauseOrDispose {}
     }
+    val requestLocalNetwork = rememberLocalNetworkRequest { granted -> if (granted) viewModel.onLocalNetworkGranted() else viewModel.refreshPermissions() }
     SyncScreen(
         state = state,
         onToggleSync = { viewModel.setSyncEnabled(it) },
@@ -106,6 +109,7 @@ fun SyncRoute(onAdd: () -> Unit, onOpen: (Long) -> Unit, onOpenSettings: () -> U
         onAdd = onAdd,
         onOpen = onOpen,
         onOpenSettings = onOpenSettings,
+        onAllowLocalNetwork = requestLocalNetwork,
     )
 }
 
@@ -118,6 +122,7 @@ fun SyncScreen(
     onAdd: () -> Unit,
     onOpen: (Long) -> Unit,
     onOpenSettings: () -> Unit,
+    onAllowLocalNetwork: () -> Unit = {},
 ) {
     val context = LocalContext.current
     Column(
@@ -149,6 +154,8 @@ fun SyncScreen(
             }
         }
 
+        if (state.needsLocalNetwork) LocalNetworkNotice(onAllowLocalNetwork)
+
         if (state.sources.any { it.source.type == SourceType.MEDIA_ALBUM } && state.mediaAccess != MediaAccess.FULL) {
             MediaAccessNotice(state.mediaAccess)
         }
@@ -178,6 +185,7 @@ private fun syncStatus(state: SyncState, context: android.content.Context): Stri
     return when {
         !state.prefs.enabled -> context.getString(R.string.sync_status_off)
         state.progress != null -> context.getString(R.string.sync_status_uploading, state.progress.done + 1, state.progress.total)
+        state.needsAttention -> context.getString(R.string.sync_status_attention)
         state.running -> context.getString(R.string.sync_status_checking)
         pending > 0 -> context.resources.getQuantityString(R.plurals.sync_status_waiting, pending, pending)
         last != null -> context.getString(R.string.sync_status_up_to_date, Formats.relative(context, last))
@@ -250,10 +258,7 @@ private fun SourceCard(summary: SourceSummary, onToggle: (Boolean) -> Unit, onCl
         }
         source.lastError?.let { error ->
             Spacer(Modifier.height(10.dp))
-            Notice(
-                stringResource(if (error == SyncEngine.MEDIA_ACCESS_ERROR) R.string.sync_error_media else R.string.sync_error_folder),
-                tone = Tone.WARNING,
-            )
+            Notice(sourceErrorText(error), tone = Tone.WARNING)
         }
     }
 }
@@ -276,6 +281,7 @@ fun AddSourceRoute(onBack: () -> Unit, onSaved: (Long) -> Unit) {
         onPickFolder = { folderPicker.launch(null) },
         onOptions = viewModel::updateOptions,
         onSave = { viewModel.save(onSaved) },
+        onRetryAlbums = viewModel::refresh,
     )
 }
 
@@ -288,6 +294,7 @@ fun AddSourceScreen(
     onPickFolder: () -> Unit,
     onOptions: ((SourceOptions) -> SourceOptions) -> Unit,
     onSave: () -> Unit,
+    onRetryAlbums: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -304,6 +311,11 @@ fun AddSourceScreen(
                     action = { PrimaryButton(stringResource(R.string.sync_media_allow), onClick = onAllowMedia, icon = Lucide.Images) },
                 )
                 state.albumsLoading -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                state.albumsError != null -> Notice(
+                    state.albumsError,
+                    tone = Tone.DANGER,
+                    action = { GhostButton(stringResource(R.string.action_try_again), onClick = onRetryAlbums, icon = Lucide.RotateCcw) },
+                )
                 state.albums.isEmpty() -> Text(stringResource(R.string.add_source_no_albums), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else -> FlareCard(contentPadding = PaddingValues(vertical = 4.dp)) {
                     if (state.mediaAccess == MediaAccess.PARTIAL) Notice(stringResource(R.string.sync_media_partial), tone = Tone.WARNING, modifier = Modifier.padding(12.dp))
@@ -387,7 +399,7 @@ private fun AlbumRow(album: MediaAlbum, onClick: () -> Unit) {
 fun SourceOptionsCard(
     isAlbum: Boolean,
     options: SourceOptions,
-    folders: List<dev.fl1nt.ember.api.RemoteFolder>?,
+    folders: FolderChoices,
     emberDefaults: UploadPreset,
     onOptions: ((SourceOptions) -> SourceOptions) -> Unit,
 ) {
@@ -452,6 +464,7 @@ fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (dev.fl1nt.e
             StatusPill(countString(R.plurals.sync_uploaded_count, state.counts.uploaded), icon = Lucide.CircleCheck, tone = Tone.SUCCESS)
             if (state.counts.failed > 0) StatusPill(countString(R.plurals.sync_failed_count, state.counts.failed), icon = Lucide.CircleAlert, tone = Tone.DANGER)
         }
+        source.lastError?.let { Notice(sourceErrorText(it), tone = Tone.WARNING) }
         if (state.counts.failed > 0) {
             OutlineButton(stringResource(R.string.source_retry_failed), onClick = { viewModel.retryFailures() }, icon = Lucide.RotateCcw, modifier = Modifier.fillMaxWidth())
         }
@@ -494,4 +507,14 @@ fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (dev.fl1nt.e
             dismissButton = { GhostButton(stringResource(R.string.action_cancel), onClick = { confirmRemove = false }) },
         )
     }
+}
+
+/** Explains a sync source's last error, stored as a [SyncEngine] code or Flare's own message. */
+@Composable
+fun sourceErrorText(error: String): String = when (error) {
+    SyncEngine.MEDIA_ACCESS_ERROR -> stringResource(R.string.sync_error_media)
+    SyncEngine.FOLDER_ACCESS_ERROR -> stringResource(R.string.sync_error_folder)
+    SyncEngine.FOLDER_MISSING_ERROR -> stringResource(R.string.sync_error_folder_missing)
+    SyncEngine.SCAN_ERROR -> stringResource(R.string.sync_error_scan)
+    else -> stringResource(R.string.sync_error_upload, error)
 }

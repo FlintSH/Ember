@@ -22,6 +22,7 @@ import dev.fl1nt.ember.R
 import dev.fl1nt.ember.data.db.FailureKind
 import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.data.db.UploadStatus
+import dev.fl1nt.ember.data.uploads.canRetry
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.Links
 import dev.fl1nt.ember.ui.components.FileThumb
@@ -90,12 +91,17 @@ fun UploadSheet(
                         title = failureLabel(upload.failureKind),
                         tone = Tone.DANGER,
                     )
-                    val canRetry = upload.failureKind != FailureKind.SOURCE_GONE && (upload.stagedPath != null || upload.sourceUri != null)
-                    if (canRetry) PrimaryButton(stringResource(R.string.action_retry), onClick = onRetry, icon = Lucide.RotateCcw, modifier = Modifier.fillMaxWidth())
+                    if (upload.canRetry) PrimaryButton(stringResource(R.string.action_retry), onClick = onRetry, icon = Lucide.RotateCcw, modifier = Modifier.fillMaxWidth())
                 }
                 UploadStatus.QUEUED -> {
                     Notice(
-                        stringResource(if (upload.failureKind == FailureKind.TRANSIENT) R.string.upload_waiting_retry else R.string.upload_waiting),
+                        stringResource(
+                            when (upload.failureKind) {
+                                FailureKind.TRANSIENT -> R.string.upload_waiting_retry
+                                FailureKind.AUTH -> R.string.upload_waiting_reconnect
+                                else -> R.string.upload_waiting
+                            },
+                        ),
                         tone = Tone.NEUTRAL,
                     )
                     OutlineButton(stringResource(R.string.action_cancel_upload), onClick = onCancel, icon = Lucide.X, modifier = Modifier.fillMaxWidth())

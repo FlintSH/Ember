@@ -11,7 +11,8 @@ import dev.fl1nt.ember.api.FlareCredential
 import dev.fl1nt.ember.api.FlareOrigin
 import dev.fl1nt.ember.api.InvalidOriginException
 import dev.fl1nt.ember.system.LocalAddresses
-import dev.fl1nt.ember.ui.describeError
+import dev.fl1nt.ember.system.describeError
+import dev.fl1nt.ember.work.Attention
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -114,11 +115,18 @@ class ConnectViewModel(
             try {
                 val capabilities = container.connection.clientFor(origin, credential).probeCapabilities()
                 if (!capabilities.uploadFiles.isGranted) {
-                    val message = if (capabilities.uploadFiles == Access.DENIED_BY_ROLE) R.string.connect_error_upload_role else R.string.connect_error_upload_scope
+                    val message = when (capabilities.uploadFiles) {
+                        Access.DENIED_BY_ROLE -> R.string.connect_error_upload_role
+                        Access.NOT_IN_TOKEN -> R.string.connect_error_upload_scope
+                        // Flare answered in a way that says neither yes nor no.
+                        else -> R.string.connect_error_upload_unknown
+                    }
                     _state.update { it.copy(step = ConnectStep.Editing, error = app.getString(message)) }
                     return@launch
                 }
                 container.accounts.connect(origin, credential, capabilities, displayName = null)
+                container.notifier.resolve(Attention.TOKEN_REJECTED)
+                container.notifier.resolve(Attention.TOKEN_UNREADABLE)
                 container.sync.reschedule(force = false)
                 // Uploads queued before a disconnect continue with the new token.
                 container.scheduler.kickUploads()

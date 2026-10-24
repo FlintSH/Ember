@@ -42,7 +42,7 @@ Turn everything off with the **Automatic sync** switch, or pause one folder with
 
 ## Which files upload
 
-Each file uploads once. Ember remembers every file it uploaded or Flare permanently rejected, so a file isn't sent twice, including after you disconnect and reconnect.
+Each file uploads once. Ember remembers every file it uploaded, Flare permanently rejected, or you cancelled, so a file isn't sent twice, including after you disconnect and reconnect. To keep a waiting file from uploading, open it in **Library → Recent** and choose **Cancel upload**.
 
 Ember skips:
 
@@ -60,14 +60,19 @@ Photos from albums upload without GPS location data. Android removes it for apps
 
 ## When something goes wrong
 
-- **Temporary problems**, such as no connection, a server error, or Flare's rate limit, pause the sync. Ember retries with increasing delays and the file uploads later.
-- **A file Flare rejects**, for example because it's larger than your instance allows, counts as failed. The folder shows **failed** with a count. Open the folder and choose **Try failed files again** after fixing the cause, such as raising the limit in Flare.
-- **A rejected token** stops all sync and shows a notification. Reconnect in **Settings**.
+- **Temporary problems**, such as no connection, a server error, or Flare's rate limit, pause the sync. Ember retries with increasing delays and the file uploads later. Synced files never turn into failures this way, so a server you can only reach at home doesn't fail every photo you take elsewhere.
+- **A file Flare rejects**, for example because it's larger than your instance allows, counts as failed. The folder shows **failed** with a count. After fixing the cause, such as raising the limit in Flare, open the folder and choose **Try failed files again**, or choose **Try again** on one file in **Library → Recent**.
+- **A refusal that would repeat**, such as a role that can't upload or a server error Ember can't retry, fails that file and pauses the folder until the next sync. The folder shows Flare's message, so one problem doesn't fail a whole album at once.
+- **A file deleted before it uploaded** is skipped without a message.
+- **A rejected token** stops all sync. Home shows **Reconnect**, and Ember sends a notification. Waiting files upload after you connect again.
 - **Lost access**: if you turn off photo access, or Android revokes access to a picked folder, the folder shows a warning and Ember notifies you. Allow access again, or remove the folder and add it again.
+- **A missing folder**, such as one on an SD card or USB drive that's been removed, shows **Ember can't find this folder**. Reconnect the storage, or remove the folder.
 - **Only some photos visible**: on Android 14 and later, choosing **Select photos** when Android asks gives Ember only those photos. Albums can't sync fully that way. Choose **Allow all** in Ember's permissions instead.
 
 See [troubleshooting](troubleshooting.md#sync-isnt-uploading) if a folder isn't syncing.
 
 ## Stop syncing a folder
 
-Open the folder and choose **Stop syncing this folder**. Files already in Flare stay there, and Ember releases its access to folders chosen with the file picker.
+Open the folder and choose **Stop syncing this folder**. Files already in Flare stay there, files still waiting to upload are dropped, and Ember releases its access to folders chosen with the file picker.
+
+Stopping or pausing a folder during a sync takes effect before the next file. A file that's already uploading finishes first.

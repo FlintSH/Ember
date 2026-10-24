@@ -16,6 +16,15 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.security.GeneralSecurityException
 
+/** Why uploads are paused until someone reconnects. */
+enum class AccountProblem {
+    /** Flare answered 401. The token expired, was revoked, or lost a scope. */
+    TOKEN_REJECTED,
+
+    /** This phone can no longer decrypt the saved token, for example after its keys were reset. */
+    TOKEN_UNREADABLE,
+}
+
 /** The connected Flare instance. The token itself is only available through [AccountStore.credential]. */
 data class Account(
     val origin: FlareOrigin,
@@ -26,6 +35,7 @@ data class Account(
     val publicOrigin: FlareOrigin?,
     val connectedAt: Long,
     val checkedAt: Long,
+    val problem: AccountProblem? = null,
 ) {
     val linkOrigin: FlareOrigin get() = publicOrigin ?: origin
 }
@@ -40,17 +50,35 @@ class AccountStore(
 
     suspend fun current(): Account? = account.first()
 
-    /** Decrypts the token, or returns `null` when Ember isn't connected or the key is gone. */
+    /**
+     * Decrypts the token, or returns `null` when Ember isn't connected or can't read
+     * it. An unreadable token is recorded as [AccountProblem.TOKEN_UNREADABLE], so
+     * the app asks to reconnect instead of looking connected.
+     */
     suspend fun credential(): FlareCredential? {
         val prefs = dataStore.data.first()
         val sealed = prefs[TOKEN] ?: return null
         return try {
             FlareCredential.of(cipher.decrypt(sealed))
         } catch (_: GeneralSecurityException) {
+            reportProblem(AccountProblem.TOKEN_UNREADABLE)
             null
         } catch (_: IllegalArgumentException) {
+            reportProblem(AccountProblem.TOKEN_UNREADABLE)
             null
         }
+    }
+
+    /** Records that uploads can't continue until someone reconnects. */
+    suspend fun reportProblem(problem: AccountProblem) {
+        dataStore.edit { prefs -> if (prefs[ORIGIN] != null) prefs[PROBLEM] = problem.name }
+    }
+
+    /** Clears a recorded problem once Flare accepts the token again. */
+    suspend fun clearProblem() {
+        // Most calls find nothing to clear, so skip the write.
+        if (dataStore.data.first()[PROBLEM] == null) return
+        dataStore.edit { it.remove(PROBLEM) }
     }
 
     suspend fun connect(origin: FlareOrigin, credential: FlareCredential, capabilities: Capabilities, displayName: String?) {
@@ -117,6 +145,7 @@ class AccountStore(
             publicOrigin = this[PUBLIC_ORIGIN]?.let(FlareOrigin::parseOrNull),
             connectedAt = this[CONNECTED_AT] ?: 0,
             checkedAt = this[CHECKED_AT] ?: 0,
+            problem = this[PROBLEM]?.let { runCatching { AccountProblem.valueOf(it) }.getOrNull() },
         )
     }
 
@@ -159,6 +188,7 @@ class AccountStore(
         val CONNECTED_AT = longPreferencesKey("connected_at")
         val CHECKED_AT = longPreferencesKey("checked_at")
         val LAST_ORIGIN = stringPreferencesKey("last_origin")
+        val PROBLEM = stringPreferencesKey("problem")
         val json = Json { ignoreUnknownKeys = true }
     }
 }

@@ -121,10 +121,16 @@ class SyncRepository(
         scheduler.syncNow(userInitiated = true)
     }
 
+    /**
+     * Forgets a folder. Uploaded files stay in history; files still waiting go,
+     * because nothing would ever upload them. A sync that's running stops before
+     * its next file from this folder.
+     */
     suspend fun remove(id: Long) {
         val source = db.sources().get(id) ?: return
         db.sources().delete(id)
         db.ledger().deleteForSource(id)
+        db.uploads().deleteUnfinishedForSource(id)
         source.treeUri?.let { uri ->
             val stillUsed = db.sources().all().any { it.treeUri == uri }
             if (!stillUsed) {

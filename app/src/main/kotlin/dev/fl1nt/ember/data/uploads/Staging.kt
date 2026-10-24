@@ -97,8 +97,14 @@ class UploadStaging(
     }
 
     /** Removes copies whose uploads no longer exist. */
-    fun prune(keepUploadIds: Set<String>) {
-        root.listFiles()?.filter { it.name !in keepUploadIds }?.forEach { it.deleteRecursively() }
+    /**
+     * Deletes copies no upload refers to anymore. Folders changed within [graceMillis]
+     * may belong to a share that's still being prepared and has no row yet.
+     */
+    fun prune(keepUploadIds: Set<String>, graceMillis: Long = PRUNE_GRACE_MILLIS, now: Long = System.currentTimeMillis()) {
+        root.listFiles()
+            ?.filter { it.name !in keepUploadIds && it.lastModified() < now - graceMillis }
+            ?.forEach { it.deleteRecursively() }
     }
 
     fun hasRoomFor(bytes: Long): Boolean {
@@ -113,6 +119,8 @@ class UploadStaging(
     }
 
     companion object {
+        private const val PRUNE_GRACE_MILLIS = 60 * 60 * 1000L
+
         private val UPLOAD_ID = Regex("^[A-Za-z0-9-]+$")
         private const val COPY_BUFFER = 256 * 1024
 

@@ -7,6 +7,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import dev.fl1nt.ember.EmberApp
+import dev.fl1nt.ember.data.account.AccountProblem
 import dev.fl1nt.ember.data.db.FailureKind
 import dev.fl1nt.ember.data.db.SourceType
 import dev.fl1nt.ember.data.db.UploadStatus
@@ -28,7 +29,13 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         val c = container
         val dao = c.database.uploads()
         dao.requeueInterrupted()
-        val client = c.connection.client() ?: return Result.failure()
+        val client = c.connection.client()
+        if (client == null) {
+            // Still connected means the token can't be read. AccountStore recorded that, so Home asks to reconnect.
+            if (c.accounts.current() != null) c.notifier.attention(Attention.TOKEN_UNREADABLE)
+            return Result.failure()
+        }
+        // Uploads resume when Ember next comes to the foreground with access granted. See EmberApp.
         if (c.localNetwork.needsPermission(client.origin)) {
             c.notifier.attention(Attention.LOCAL_NETWORK)
             return Result.failure()
@@ -45,6 +52,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 if (outcome is Uploader.Outcome.Failed) {
                     when {
                         outcome.failure.kind == FailureKind.AUTH -> {
+                            c.accounts.reportProblem(AccountProblem.TOKEN_REJECTED)
                             c.notifier.attention(Attention.TOKEN_REJECTED)
                             return Result.failure()
                         }
@@ -94,14 +102,18 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             withContext(NonCancellable) {
                 c.notifier.cancel(Notifier.ID_SYNC_PROGRESS)
                 // Trigger work runs once; watch MediaStore again only while an album still syncs.
+                // Settings are read again because they may have changed during the run.
+                val latest = c.settings.current().sync
                 val albumsSync = c.database.sources().all().any { it.enabled && it.type == SourceType.MEDIA_ALBUM }
-                if (reason == REASON_MEDIA && prefs.enabled && albumsSync) c.scheduler.armMediaTrigger(prefs)
+                if (reason == REASON_MEDIA && latest.enabled && albumsSync) c.scheduler.armMediaTrigger(latest)
             }
         }
         return when (result) {
             is SyncRun.Completed -> {
                 // Files still being written get another look shortly, not at the next scheduled check.
-                if (result.settling > 0) c.scheduler.continueSync(prefs, delay = SETTLE_RECHECK)
+                // A file that never stops changing, like a growing log, gets a few looks, then waits.
+                val round = inputData.getInt(KEY_SETTLE_ROUND, 0)
+                if (result.settling > 0 && round < MAX_SETTLE_ROUNDS) c.scheduler.continueSync(prefs, delay = SETTLE_RECHECK, settleRound = round + 1)
                 Result.success()
             }
             SyncRun.Disabled, SyncRun.NotConnected -> Result.success()
@@ -131,6 +143,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         const val REASON_MEDIA = "media"
         const val REASON_MANUAL = "manual"
         const val REASON_CONTINUE = "continue"
+        const val KEY_SETTLE_ROUND = "settle_round"
+        private const val MAX_SETTLE_ROUNDS = 5
 
         /** Stop before Android's ten minute limit for regular jobs. */
         private const val RUN_BUDGET_MILLIS = 8 * 60 * 1000L

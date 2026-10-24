@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -42,6 +41,7 @@ import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.settings.UploadPreset
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.Links
+import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.ui.components.EmberTextField
 import dev.fl1nt.ember.ui.components.ExpirationRow
 import dev.fl1nt.ember.ui.components.FlareCard
@@ -54,9 +54,10 @@ import dev.fl1nt.ember.ui.components.PrimaryButton
 import dev.fl1nt.ember.ui.components.ScreenHeader
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.VisibilityRow
-import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.components.countString
+import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -110,13 +111,21 @@ class PasteViewModel(private val container: AppContainer, initialText: String = 
         viewModelScope.launch {
             val settings = container.settings.current()
             val preset = UploadPreset(visibility = current.visibility, expiration = current.expiration).over(settings.defaults)
-            val batch = container.uploads.enqueuePaste(
-                text = current.content,
-                fileName = current.fileName.trim().ifEmpty { current.defaultFileName },
-                origin = UploadOrigin.PASTE,
-                preset = preset,
-                password = current.password.ifEmpty { null },
-            )
+            // Saving the paste can fail on a full disk or a secure storage problem. Keep the text and say why.
+            val batch = try {
+                container.uploads.enqueuePaste(
+                    text = current.content,
+                    fileName = current.fileName.trim().ifEmpty { current.defaultFileName },
+                    origin = UploadOrigin.PASTE,
+                    preset = preset,
+                    password = current.password.ifEmpty { null },
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update { it.copy(error = describeError(container.application, error)) }
+                return@launch
+            }
             watch?.cancel()
             watch = launch {
                 container.uploads.observeBatch(batch).collect { rows ->

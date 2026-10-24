@@ -17,6 +17,7 @@ import dev.fl1nt.ember.data.settings.SettingsStore
 import dev.fl1nt.ember.data.settings.SyncPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.Duration
 import java.util.concurrent.TimeUnit
@@ -40,7 +41,7 @@ class WorkScheduler(private val context: Context, private val settings: Settings
      * Keeps automatic sync scheduled: a periodic safety net for every source, plus
      * a MediaStore trigger so new photos and screenshots upload within seconds.
      */
-    fun configureSync(prefs: SyncPreferences, hasSources: Boolean, hasMediaSources: Boolean, force: Boolean) {
+    suspend fun configureSync(prefs: SyncPreferences, hasSources: Boolean, hasMediaSources: Boolean, force: Boolean) {
         if (!prefs.enabled || !hasSources) {
             workManager.cancelUniqueWork(SYNC_PERIODIC)
             workManager.cancelUniqueWork(SYNC_MEDIA)
@@ -53,7 +54,10 @@ class WorkScheduler(private val context: Context, private val settings: Settings
             .build()
         workManager.enqueueUniquePeriodicWork(SYNC_PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, periodic)
         if (hasMediaSources) {
-            armMediaTrigger(prefs, if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP)
+            // Replacing would cancel a media sync that's uploading right now. A running
+            // one re-arms the trigger with the current settings when it finishes.
+            val running = workManager.getWorkInfosForUniqueWorkFlow(SYNC_MEDIA).first().any { it.state == WorkInfo.State.RUNNING }
+            armMediaTrigger(prefs, if (force && !running) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP)
         } else {
             workManager.cancelUniqueWork(SYNC_MEDIA)
         }
@@ -100,12 +104,15 @@ class WorkScheduler(private val context: Context, private val settings: Settings
         workManager.enqueueUniqueWork(SYNC_NOW, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
-    /** Continues a large sync in a new job window, or rechecks files that were still being written. */
-    fun continueSync(prefs: SyncPreferences, delay: Duration = Duration.ZERO) {
+    /**
+     * Continues a large sync in a new job window, or rechecks files that were still
+     * being written. [settleRound] counts consecutive rechecks.
+     */
+    fun continueSync(prefs: SyncPreferences, delay: Duration = Duration.ZERO, settleRound: Int = 0) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInitialDelay(delay)
             .setConstraints(syncConstraints(prefs))
-            .setInputData(workDataOf(SyncWorker.KEY_REASON to SyncWorker.REASON_CONTINUE))
+            .setInputData(workDataOf(SyncWorker.KEY_REASON to SyncWorker.REASON_CONTINUE, SyncWorker.KEY_SETTLE_ROUND to settleRound))
             .build()
         workManager.enqueueUniqueWork(SYNC_CONTINUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
@@ -121,6 +128,11 @@ class WorkScheduler(private val context: Context, private val settings: Settings
 
     fun observeUploadsRunning(): Flow<Boolean> =
         workManager.getWorkInfosForUniqueWorkFlow(UPLOADS).map { infos -> infos.any { it.state == WorkInfo.State.RUNNING } }
+
+    /** Restarts the share queue when something waits in it and no upload is running. */
+    suspend fun resumeUploads(queued: Int) {
+        if (queued > 0 && !observeUploadsRunning().first()) kickUploads()
+    }
 
     fun cancelAll() {
         listOf(UPLOADS, SYNC_PERIODIC, SYNC_MEDIA, SYNC_NOW, SYNC_CONTINUE).forEach(workManager::cancelUniqueWork)

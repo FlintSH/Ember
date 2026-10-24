@@ -4,7 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.fl1nt.ember.AppContainer
-import dev.fl1nt.ember.api.RemoteFolder
+import dev.fl1nt.ember.api.FlareException
 import dev.fl1nt.ember.data.db.LedgerCounts
 import dev.fl1nt.ember.data.db.SourceType
 import dev.fl1nt.ember.data.db.SyncSourceEntity
@@ -16,7 +16,9 @@ import dev.fl1nt.ember.data.sync.NewSource
 import dev.fl1nt.ember.data.sync.SyncProgress
 import dev.fl1nt.ember.system.MediaAccess
 import dev.fl1nt.ember.system.MediaPermissions
+import dev.fl1nt.ember.system.describeError
 import dev.fl1nt.ember.ui.attempt
+import dev.fl1nt.ember.ui.components.FolderChoices
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -39,12 +41,16 @@ data class SyncState(
     val progress: SyncProgress? = null,
     val mediaAccess: MediaAccess = MediaAccess.FULL,
     val loaded: Boolean = false,
-)
+    val needsLocalNetwork: Boolean = false,
+) {
+    val needsAttention: Boolean get() = needsLocalNetwork || sources.any { it.source.enabled && it.source.lastError != null }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncViewModel(private val container: AppContainer) : ViewModel() {
 
     private val mediaAccess = MutableStateFlow(MediaPermissions.access(container.application))
+    private val localNetworkBlocked = MutableStateFlow(false)
 
     private val summaries: Flow<List<SourceSummary>> = container.sync.observeSources().flatMapLatest { sources ->
         if (sources.isEmpty()) {
@@ -61,13 +67,26 @@ class SyncViewModel(private val container: AppContainer) : ViewModel() {
         container.settings.settings,
         container.scheduler.observeSyncRunning(),
         container.syncEngine.progress,
-        mediaAccess,
-    ) { sources, settings, running, progress, access ->
-        SyncState(sources, settings.sync, running || progress != null, progress, access, loaded = true)
+        combine(mediaAccess, localNetworkBlocked) { access, blocked -> access to blocked },
+    ) { sources, settings, running, progress, (access, blocked) ->
+        SyncState(sources, settings.sync, running || progress != null, progress, access, loaded = true, needsLocalNetwork = blocked)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncState())
 
     fun refreshPermissions() {
         mediaAccess.value = MediaPermissions.access(container.application)
+        viewModelScope.launch {
+            val account = container.accounts.current()
+            localNetworkBlocked.value = account != null && container.localNetwork.needsPermission(account.origin)
+        }
+    }
+
+    /** Local network access was just granted, so sync what waited for it. */
+    fun onLocalNetworkGranted() {
+        localNetworkBlocked.value = false
+        viewModelScope.launch {
+            container.scheduler.resumeUploads(container.database.uploads().queuedCount())
+            container.scheduler.syncNow(userInitiated = true)
+        }
     }
 
     fun setSyncEnabled(enabled: Boolean) = viewModelScope.launch {
@@ -97,10 +116,11 @@ data class AddSourceState(
     val mediaAccess: MediaAccess = MediaAccess.NONE,
     val selected: NewSource? = null,
     val options: SourceOptions = SourceOptions(),
-    val folders: List<RemoteFolder>? = null,
+    val folders: FolderChoices = FolderChoices.Loading,
     val defaults: UploadPreset = UploadPreset(),
     val saving: Boolean = false,
     val error: String? = null,
+    val albumsError: String? = null,
 )
 
 class AddSourceViewModel(private val container: AppContainer) : ViewModel() {
@@ -118,8 +138,9 @@ class AddSourceViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(mediaAccess = access, albumsLoading = access != MediaAccess.NONE) }
         if (access == MediaAccess.NONE) return
         viewModelScope.launch {
-            val albums = attempt { container.sync.listAlbums() }.getOrDefault(emptyList())
-            _state.update { it.copy(albums = albums, albumsLoading = false) }
+            attempt { container.sync.listAlbums() }
+                .onSuccess { albums -> _state.update { it.copy(albums = albums, albumsLoading = false, albumsError = null) } }
+                .onFailure { error -> _state.update { it.copy(albums = emptyList(), albumsLoading = false, albumsError = describeError(container.application, error)) } }
         }
     }
 
@@ -144,7 +165,7 @@ class AddSourceViewModel(private val container: AppContainer) : ViewModel() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            _state.update { it.copy(error = error.message) }
+            _state.update { it.copy(error = describeError(container.application, error)) }
         }
     }
 
@@ -172,7 +193,7 @@ class AddSourceViewModel(private val container: AppContainer) : ViewModel() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                _state.update { it.copy(saving = false, error = error.message) }
+                _state.update { it.copy(saving = false, error = describeError(container.application, error)) }
             }
         }
     }
@@ -182,7 +203,7 @@ data class SourceDetailState(
     val source: SyncSourceEntity? = null,
     val counts: LedgerCounts = LedgerCounts(0, 0),
     val recent: List<UploadEntity> = emptyList(),
-    val folders: List<RemoteFolder>? = null,
+    val folders: FolderChoices = FolderChoices.Loading,
     val removed: Boolean = false,
     val defaults: UploadPreset = UploadPreset(),
 )
@@ -190,7 +211,7 @@ data class SourceDetailState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class SourceDetailViewModel(private val container: AppContainer, private val id: Long) : ViewModel() {
 
-    private val folders = MutableStateFlow<List<RemoteFolder>?>(null)
+    private val folders = MutableStateFlow<FolderChoices>(FolderChoices.Loading)
     private val removed = MutableStateFlow(false)
 
     val state: StateFlow<SourceDetailState> = combine(
@@ -222,9 +243,19 @@ class SourceDetailViewModel(private val container: AppContainer, private val id:
     val isAlbum: Boolean get() = state.value.source?.type == SourceType.MEDIA_ALBUM
 }
 
-/** Folders for pickers, when the credential may list them. */
-suspend fun fetchFolders(container: AppContainer): List<RemoteFolder>? {
-    val account = container.accounts.current() ?: return null
-    if (!account.capabilities.listFolders.isGranted) return null
-    return attempt { container.connection.client()?.listFolders() }.getOrNull()
+/** Folders for pickers, or why there are none. */
+suspend fun fetchFolders(container: AppContainer): FolderChoices {
+    val account = container.accounts.current() ?: return FolderChoices.NotPermitted
+    if (account.capabilities.listFolders.isDenied) return FolderChoices.NotPermitted
+    return attempt { container.connection.client()?.listFolders() ?: throw FlareException.Unauthorized() }.fold(
+        onSuccess = { FolderChoices.Loaded(it) },
+        onFailure = { error ->
+            // An unknown answer at connect time can turn out to mean "not allowed".
+            if (error is FlareException.Unauthorized && !account.capabilities.listFolders.isGranted) {
+                FolderChoices.NotPermitted
+            } else {
+                FolderChoices.Failed(describeError(container.application, error, account.origin.displayName))
+            }
+        },
+    )
 }

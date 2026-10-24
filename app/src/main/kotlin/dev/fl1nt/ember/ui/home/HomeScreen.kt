@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -39,11 +38,13 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.ui.LocalAppContainer
+import dev.fl1nt.ember.ui.components.AccountProblemNotice
 import dev.fl1nt.ember.ui.components.DashedCard
 import dev.fl1nt.ember.ui.components.EmberWordmark
 import dev.fl1nt.ember.ui.components.EmptyState
@@ -54,12 +55,14 @@ import dev.fl1nt.ember.ui.components.Formats
 import dev.fl1nt.ember.ui.components.GhostButton
 import dev.fl1nt.ember.ui.components.GlowBackground
 import dev.fl1nt.ember.ui.components.IconTile
+import dev.fl1nt.ember.ui.components.LocalNetworkNotice
 import dev.fl1nt.ember.ui.components.SectionTitle
 import dev.fl1nt.ember.ui.components.SettingRow
 import dev.fl1nt.ember.ui.components.StatusDot
 import dev.fl1nt.ember.ui.components.StatusPill
 import dev.fl1nt.ember.ui.components.Tone
 import dev.fl1nt.ember.ui.components.UploadRow
+import dev.fl1nt.ember.ui.components.rememberLocalNetworkRequest
 import dev.fl1nt.ember.ui.emberViewModel
 import dev.fl1nt.ember.ui.icons.Lucide
 import dev.fl1nt.ember.ui.uploads.UploadSheet
@@ -75,6 +78,7 @@ fun HomeRoute(
     onSnackbar: (String) -> Unit,
     openUploadPicker: Boolean,
     onUploadPickerHandled: () -> Unit,
+    onReconnect: () -> Unit = {},
 ) {
     val viewModel = emberViewModel { HomeViewModel(it) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -87,6 +91,12 @@ fun HomeRoute(
 
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_PICK)) { viewModel.upload(it) }
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { viewModel.upload(it) }
+
+    val requestLocalNetwork = rememberLocalNetworkRequest { granted -> if (granted) viewModel.onLocalNetworkGranted() else viewModel.refreshAccess() }
+    LifecycleResumeEffect(Unit) {
+        viewModel.refreshAccess()
+        onPauseOrDispose {}
+    }
 
     LaunchedEffect(openUploadPicker) {
         if (openUploadPicker) {
@@ -115,6 +125,8 @@ fun HomeRoute(
         onSeeAll = onSeeAll,
         onSelect = { selected = it },
         onCopy = { upload -> upload.pageUrl?.let { Clipboard.copy(context, it) } },
+        onReconnect = onReconnect,
+        onAllowLocalNetwork = requestLocalNetwork,
     )
 
     if (choosing) {
@@ -154,9 +166,11 @@ fun HomeScreen(
     onSeeAll: () -> Unit,
     onSelect: (UploadEntity) -> Unit,
     onCopy: (UploadEntity) -> Unit,
+    onReconnect: () -> Unit = {},
+    onAllowLocalNetwork: () -> Unit = {},
 ) {
     val account = state.account
-    val canShorten = account?.capabilities?.manageLinks?.isGranted ?: true
+    val canShorten = account?.capabilities?.manageLinks?.isDenied != true
     GlowBackground(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -170,7 +184,7 @@ fun HomeScreen(
                 EmberWordmark(Modifier.weight(1f))
                 if (account != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        StatusDot(Tone.SUCCESS)
+                        StatusDot(if (account.problem != null || state.needsLocalNetwork) Tone.DANGER else Tone.SUCCESS)
                         Text(account.origin.displayName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
@@ -180,6 +194,9 @@ fun HomeScreen(
                 Text(account?.displayName.orEmpty(), style = MaterialTheme.typography.headlineMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(stringResource(R.string.home_subtitle), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+
+            account?.problem?.let { AccountProblemNotice(it, onReconnect) }
+            if (state.needsLocalNetwork) LocalNetworkNotice(onAllowLocalNetwork)
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -253,6 +270,7 @@ private fun SyncSummaryCard(state: HomeState, onOpen: () -> Unit) {
                 Text(stringResource(R.string.home_sync_title), style = MaterialTheme.typography.titleSmall)
                 val status = when {
                     !state.syncEnabled -> stringResource(R.string.sync_status_off)
+                    state.syncNeedsAttention && state.syncProgress == null -> stringResource(R.string.sync_status_attention)
                     state.syncProgress != null -> stringResource(R.string.sync_status_uploading, state.syncProgress.done + 1, state.syncProgress.total)
                     state.syncRunning -> stringResource(R.string.sync_status_checking)
                     state.pending > 0 -> pluralStringResource(R.plurals.sync_status_waiting, state.pending, state.pending)

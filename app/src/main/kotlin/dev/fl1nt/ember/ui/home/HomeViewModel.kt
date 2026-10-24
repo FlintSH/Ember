@@ -10,6 +10,7 @@ import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.data.db.UploadOrigin
 import dev.fl1nt.ember.data.sync.SyncProgress
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,10 +26,12 @@ data class HomeState(
     val syncEnabled: Boolean = true,
     val syncRunning: Boolean = false,
     val syncProgress: SyncProgress? = null,
+    val needsLocalNetwork: Boolean = false,
 ) {
     val enabledSources: Int get() = sources.count { it.enabled }
     val pending: Int get() = sources.filter { it.enabled }.sumOf { it.pendingCount }
     val lastSyncAt: Long? get() = sources.mapNotNull { it.lastScanAt }.maxOrNull()
+    val syncNeedsAttention: Boolean get() = needsLocalNetwork || sources.any { it.enabled && it.lastError != null }
 }
 
 sealed interface HomeEvent {
@@ -50,7 +53,9 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
         container.syncEngine.progress,
     ) { sources, settings, running, progress -> SyncSnapshot(sources, settings.sync.enabled, running, progress) }
 
-    val state: StateFlow<HomeState> = combine(container.accounts.account, uploadsFlow, syncFlow) { account, (recent, active), sync ->
+    private val localNetworkBlocked = MutableStateFlow(false)
+
+    val state: StateFlow<HomeState> = combine(container.accounts.account, uploadsFlow, syncFlow, localNetworkBlocked) { account, (recent, active), sync, blocked ->
         HomeState(
             account = account,
             recent = recent,
@@ -59,8 +64,26 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
             syncEnabled = sync.enabled,
             syncRunning = sync.running || sync.progress != null,
             syncProgress = sync.progress,
+            needsLocalNetwork = blocked,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
+
+    /** Checks again whether Ember needs local network access, such as after a visit to system settings. */
+    fun refreshAccess() {
+        viewModelScope.launch {
+            val account = container.accounts.current()
+            localNetworkBlocked.value = account != null && container.localNetwork.needsPermission(account.origin)
+        }
+    }
+
+    /** Access was just granted, so continue whatever was waiting for it. */
+    fun onLocalNetworkGranted() {
+        viewModelScope.launch {
+            localNetworkBlocked.value = false
+            container.scheduler.resumeUploads(container.database.uploads().queuedCount())
+            if (container.database.sources().all().any { it.enabled }) container.scheduler.syncNow(userInitiated = false)
+        }
+    }
 
     fun upload(uris: List<Uri>) {
         if (uris.isEmpty()) return

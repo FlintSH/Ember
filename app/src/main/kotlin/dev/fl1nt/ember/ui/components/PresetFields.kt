@@ -110,13 +110,13 @@ fun ExpiryActionRow(value: ExpiryAction?, onChange: (ExpiryAction?) -> Unit, emb
 fun FolderRow(
     value: UploadPreset.Choice,
     onChange: (UploadPreset.Choice) -> Unit,
-    folders: List<RemoteFolder>?,
+    folders: FolderChoices,
     emberDefaults: UploadPreset?,
     explainUnavailableList: Boolean = true,
 ) {
     var askForId by remember { mutableStateOf(false) }
     val manual = remember { Any() }
-    val paths = remember(folders) { folders?.let(::folderPaths).orEmpty() }
+    val paths = remember(folders) { (folders as? FolderChoices.Loaded)?.folders?.let(::folderPaths).orEmpty() }
     val options = buildList<Option<Any>> {
         add(Option(UploadPreset.Choice.Inherit, inheritLabel(emberDefaults?.folder?.let { folderLabel(it) })))
         add(Option(UploadPreset.Choice.None, stringResource(R.string.folder_unfiled)))
@@ -129,7 +129,12 @@ fun FolderRow(
     OptionRow(
         title = stringResource(R.string.field_folder),
         icon = Lucide.Folder,
-        description = if (folders == null && explainUnavailableList) stringResource(R.string.folder_list_unavailable) else null,
+        description = when {
+            !explainUnavailableList -> null
+            folders is FolderChoices.NotPermitted -> stringResource(R.string.folder_list_unavailable)
+            folders is FolderChoices.Failed -> folders.message
+            else -> null
+        },
         options = options,
         selected = value,
         onSelect = { selected ->
@@ -216,6 +221,18 @@ fun parseFolderId(text: String): String? {
     val trimmed = text.trim()
     val fromLink = Regex("""[?&]folder=([A-Za-z0-9_-]{1,128})""").find(trimmed)?.groupValues?.get(1)
     return fromLink ?: trimmed.takeIf { it.matches(ID_PATTERN) }
+}
+
+/** Flare folders for a folder picker. */
+sealed interface FolderChoices {
+    data object Loading : FolderChoices
+
+    /** The token can't list folders, like a named token. A folder link still works. */
+    data object NotPermitted : FolderChoices
+
+    data class Failed(val message: String) : FolderChoices
+
+    data class Loaded(val folders: List<RemoteFolder>) : FolderChoices
 }
 
 /** Pairs each folder with its full path, such as "Projects / Website". */

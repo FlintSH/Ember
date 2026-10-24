@@ -24,8 +24,11 @@ enum class FailureKind {
     /** Flare rejected the request itself, such as a file type mismatch. */
     REJECTED,
 
-    /** Ember can no longer read the original file. */
+    /** The original file is gone, such as after it was deleted. */
     SOURCE_GONE,
+
+    /** Ember lost permission to read the original file. */
+    NO_ACCESS,
 
     /** Temporary: offline, rate limited, or the server is down. Retried automatically. */
     TRANSIENT,
@@ -54,7 +57,7 @@ data class UploadEntity(
     val syncItemKey: String?,
     /** The resolved [dev.fl1nt.ember.data.settings.UploadPreset] for this upload. */
     val presetJson: String,
-    /** An optional file password, encrypted like the token. Cleared after upload. */
+    /** An optional file password, encrypted like the token. Kept until the upload finishes or is removed, so a retry still sends it. */
     val sealedPassword: String?,
     val status: UploadStatus,
     val bytesSent: Long = 0,

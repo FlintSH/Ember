@@ -12,7 +12,11 @@
 
 **"This device doesn't trust the certificate…"** Use a certificate from a public authority, or install your own certificate authority in Android's settings (usually **Security → More security settings → Encryption and credentials → Install a certificate**).
 
-**A local server stopped working on Android 17.** Android may have turned off Ember's local network access. Allow it in Android's settings for Ember, under **Permissions → Nearby devices**.
+**A local server stopped working on Android 17.** Android may have turned off Ember's local network access. Home and Sync show **Allow local network access**: choose **Allow**, or allow it in Android's settings for Ember, under **Permissions → Nearby devices**. Waiting uploads continue when you come back to Ember.
+
+**"Flare rejected Ember's token."** The token expired, was revoked, or lost a permission. Choose **Reconnect** on Home and connect with a new token. Waiting uploads and sync continue afterwards.
+
+**"Ember can't read its saved token."** Android can reset the keys Ember uses to encrypt the token. Choose **Reconnect** on Home and connect again.
 
 ## Uploading
 
@@ -22,7 +26,7 @@
 
 **Rejected by Flare.** Flare refused the request and Ember shows its reason, such as a missing folder. A wrong file type usually means the sending app reported the type incorrectly; send the file again from a file manager.
 
-**Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Token rejected** and a notification instead: disconnect in **Settings** and connect with a new token. Waiting uploads continue afterwards.
+**Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Paused** instead, with **Reconnect** on Home.
 
 **A link points to the wrong address.** Flare builds links from its `NEXTAUTH_URL` setting. Ask your administrator to set it to the public address.
 
@@ -32,7 +36,7 @@
 
 1. Check that **Automatic sync** is on, and the folder's own switch.
 2. Check **Settings → Automatic sync**: with **Wi-Fi only**, nothing uploads on mobile data. With **Only while charging**, scheduled syncs wait for a charger.
-3. Look for a warning on the folder. Restore photo access, or remove and add a picked folder again.
+3. Look for a warning on the folder. **Needs attention** on the Sync screen means a folder, photo access, or local network access needs you, and the warning says what to do.
 4. On Android 14 and later, make sure Ember can see **all** photos, not only selected ones.
 5. Some phones stop background apps aggressively. In Android's settings for Ember, set battery use to **Unrestricted**. [Don't kill my app](https://dontkillmyapp.com) has steps for many manufacturers.
 6. Choose **Sync now** to check immediately.

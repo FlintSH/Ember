@@ -30,12 +30,19 @@ class LinksRepository(
         return entity
     }
 
-    /** Loads the account's links. Returns false when the token can't list them. */
+    /**
+     * Loads the account's links. Returns false when the token can't list them.
+     * @throws FlareException when a token that could list them is now refused, or Flare can't be reached.
+     */
     suspend fun refresh(): Boolean {
-        val client = connection.client() ?: return false
+        val account = accounts.current() ?: return false
+        if (account.capabilities.readLinks.isDenied) return false
+        val client = connection.client() ?: throw FlareException.Unauthorized()
         val links = try {
             client.listShortLinks()
-        } catch (_: FlareException.Unauthorized) {
+        } catch (refused: FlareException.Unauthorized) {
+            // Expected without Read short links. With it, the token itself was refused.
+            if (account.capabilities.readLinks.isGranted) throw refused
             return false
         }
         val entities = links.map { it.toEntity() }
