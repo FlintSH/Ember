@@ -11,6 +11,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
@@ -119,7 +120,11 @@ class EmberJourneyTest {
     private fun dismissClipboardPreview() {
         val preview = By.pkg("com.android.systemui").res(Pattern.compile(".*:id/(dismiss_button|clipboard_overlay_dismiss)"))
         val dismiss = device.wait(Until.findObject(preview), 3_000) ?: return
-        dismiss.click()
+        try {
+            dismiss.click()
+        } catch (_: StaleObjectException) {
+            // It timed out and went away by itself between finding and tapping it.
+        }
         device.wait(Until.gone(preview), 5_000)
     }
 
