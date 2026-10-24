@@ -20,6 +20,7 @@ data class Failure(val kind: FailureKind, val message: String) {
             is FlareException.Server ->
                 Failure(if (error.isRetryable) FailureKind.TRANSIENT else FailureKind.OTHER, error.message.orEmpty())
             is FlareException.UnexpectedResponse -> Failure(FailureKind.OTHER, error.message.orEmpty())
+            is FlareException.SourceUnavailable -> Failure(FailureKind.SOURCE_GONE, error.message.orEmpty())
             is InsufficientSpaceException -> Failure(FailureKind.OTHER, error.message.orEmpty())
             is FileNotFoundException, is SecurityException -> Failure(FailureKind.SOURCE_GONE, error.message.orEmpty())
             is IOException -> Failure(FailureKind.TRANSIENT, error.message.orEmpty())

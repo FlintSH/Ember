@@ -2,7 +2,7 @@
 # Runs Ember's end-to-end journey on a booted emulator and collects screenshots,
 # a screen recording, and logs. CI calls this from android-emulator-runner.
 #
-#   FLARE_URL=http://localhost:3000 FLARE_TOKEN=flr_... EMBER_PACKAGE=dev.fl1nt.ember \
+#   FLARE_URL=http://10.0.2.2:3000 FLARE_TOKEN=flr_... EMBER_PACKAGE=dev.fl1nt.ember \
 #   E2E_LABEL=api36 scripts/ci/run-e2e.sh app.apk e2e.apk out/
 #
 # `am instrument` exits 0 even when tests fail, so the result is read from its output.
@@ -15,8 +15,11 @@ out=$3
 mkdir -p "$out"
 
 adb wait-for-device
-# Ember and the tests reach the host's Flare as localhost:3000 through this.
-adb reverse tcp:3000 tcp:3000
+# A localhost address reaches the host's Flare through adb. The emulator's own
+# alias for the host, 10.0.2.2, needs nothing extra.
+case "$FLARE_URL" in
+  *://localhost:*) adb reverse tcp:3000 tcp:3000 ;;
+esac
 adb install -r "$app_apk"
 adb install -r "$test_apk"
 adb shell rm -rf /sdcard/Download/ember-e2e /sdcard/Download/ember-journey.mp4

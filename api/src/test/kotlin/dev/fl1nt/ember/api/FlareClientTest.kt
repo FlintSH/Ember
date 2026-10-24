@@ -228,10 +228,62 @@ class FlareClientTest {
             assertThat((it as FlareException.RateLimited).retryAfterSeconds).isEqualTo(60)
             assertThat(it.isRetryable).isTrue()
         }
+        // Flare cleans up an upload it couldn't commit, so outages and gateway errors retry.
         failure(json(500, """{"success":false,"error":"Upload failed"}""")).let {
             assertThat(it).isInstanceOf(FlareException.Server::class.java)
-            assertThat(it.isRetryable).isFalse()
+            assertThat(it.isRetryable).isTrue()
         }
+        failure(MockResponse.Builder().code(524).body("<html>A timeout occurred</html>").build()).let {
+            assertThat(it).isInstanceOf(FlareException.Server::class.java)
+            assertThat(it.isRetryable).isTrue()
+        }
+        failure(json(408, """{"error":"Request timeout"}""")).let { assertThat(it.isRetryable).isTrue() }
+        failure(json(501, """{"error":"Not implemented"}""")).let { assertThat(it.isRetryable).isFalse() }
+    }
+
+    @Test
+    fun `a file that disappeared before upload is reported as unavailable`() = runTest {
+        val gone = object : UploadSource {
+            override val fileName = "deleted.jpg"
+            override val declaredMimeType = "image/jpeg"
+            override val size: Long = 10
+            override fun open(): java.io.InputStream = throw java.io.FileNotFoundException("gone")
+        }
+        val error = runCatching { client().upload(gone) }.exceptionOrNull()
+        assertThat(error).isInstanceOf(FlareException.SourceUnavailable::class.java)
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a Wi-Fi sign-in page is a temporary network problem`() = runTest {
+        server.enqueue(MockResponse.Builder().code(200).setHeader("Content-Type", "text/html").body("<html>Sign in to Hotel Wi-Fi</html>").build())
+        val error = runCatching { client().upload(BytesUploadSource("note.txt", "hi".toByteArray(), "text/plain")) }.exceptionOrNull()
+        assertThat(error).isInstanceOf(FlareException.Network::class.java)
+        assertThat((error as FlareException).isRetryable).isTrue()
+    }
+
+    @Test
+    fun `unreadable JSON from Flare is not retried, because the file may be stored`() = runTest {
+        server.enqueue(json(200, """{"success":true,"data":{"unexpected":true}}"""))
+        val error = runCatching { client().upload(BytesUploadSource("note.txt", "hi".toByteArray(), "text/plain")) }.exceptionOrNull()
+        assertThat(error).isInstanceOf(FlareException.UnexpectedResponse::class.java)
+        assertThat((error as FlareException).isRetryable).isFalse()
+    }
+
+    @Test
+    fun `an outage during the access check is an error, not a missing scope`() = runTest {
+        server.enqueue(json(200, """{"success":true,"data":{"status":"ok"}}"""))
+        repeat(5) { server.enqueue(json(503, """{"error":"Service unavailable"}""")) }
+        val error = runCatching { client().probeCapabilities() }.exceptionOrNull()
+        assertThat(error).isInstanceOf(FlareException.Server::class.java)
+    }
+
+    @Test
+    fun `a dropped connection during the access check is an error, not a missing scope`() = runTest {
+        server.enqueue(json(200, """{"success":true,"data":{"status":"ok"}}"""))
+        server.close()
+        val error = runCatching { client().probeCapabilities() }.exceptionOrNull()
+        assertThat(error).isInstanceOf(FlareException.Network::class.java)
     }
 
     @Test

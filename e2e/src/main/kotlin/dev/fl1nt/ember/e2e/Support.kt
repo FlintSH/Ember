@@ -47,6 +47,14 @@ class FlareApi(baseUrl: String, private val token: String) {
         }
     }
 
+    /** Throws unless Flare's health check answers. */
+    fun health() {
+        val request = Request.Builder().url(base.newBuilder().encodedPath("/api/health").build()).build()
+        http.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "GET /api/health returned HTTP ${response.code}" }
+        }
+    }
+
     /** Library files whose names match [search], with their MIME types. */
     fun files(search: String): Map<String, String> {
         val data = get("/api/files", mapOf("search" to search, "limit" to "100")).getJSONArray("data")

@@ -56,6 +56,10 @@ class EmberJourneyTest {
                 }
             }
             Device.grant(pkg, *permissions.toTypedArray())
+            // Fail fast, with the reason, when the emulator can't reach the test server.
+            runCatching { api.health() }.onFailure { error ->
+                throw AssertionError("This device can't reach Flare at ${Args.flareUrl}: $error", error)
+            }
         }
     }
 

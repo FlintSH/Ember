@@ -15,6 +15,9 @@ enum class Access {
     ;
 
     val isGranted: Boolean get() = this == GRANTED
+
+    /** Flare said no. Features stay available while the answer is [UNKNOWN]. */
+    val isDenied: Boolean get() = this == NOT_IN_TOKEN || this == DENIED_BY_ROLE
 }
 
 /**

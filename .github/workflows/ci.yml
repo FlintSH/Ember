@@ -87,24 +87,29 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
+      # Only publishing runs on main get the signing secrets. Pull request builds
+      # run branch-controlled build code, so they're signed with the debug key.
       - name: Prepare release signing
         if: needs.plan.outputs.publish != 'none'
         env:
           EMBER_KEYSTORE_BASE64: ${{ secrets.EMBER_KEYSTORE_BASE64 }}
+          EMBER_KEYSTORE_PASSWORD: ${{ secrets.EMBER_KEYSTORE_PASSWORD }}
+          EMBER_KEY_PASSWORD: ${{ secrets.EMBER_KEY_PASSWORD }}
         run: |
-          if [ -z "$EMBER_KEYSTORE_BASE64" ]; then
+          if [ -z "$EMBER_KEYSTORE_BASE64" ] || [ -z "$EMBER_KEYSTORE_PASSWORD" ] || [ -z "$EMBER_KEY_PASSWORD" ]; then
             echo "::error::Release signing secrets are missing. See docs/releasing.md."
             exit 1
           fi
           echo "$EMBER_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ember.keystore"
-          echo "EMBER_KEYSTORE_PATH=$RUNNER_TEMP/ember.keystore" >> "$GITHUB_ENV"
+          {
+            echo "EMBER_KEYSTORE_PATH=$RUNNER_TEMP/ember.keystore"
+            echo "EMBER_KEYSTORE_PASSWORD=$EMBER_KEYSTORE_PASSWORD"
+            # The alias isn't secret, and as a secret GitHub would mask every "ember" in the logs.
+            echo "EMBER_KEY_ALIAS=ember"
+            echo "EMBER_KEY_PASSWORD=$EMBER_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
 
       - name: Lint, test, verify screenshots, and build
-        env:
-          EMBER_KEYSTORE_PASSWORD: ${{ secrets.EMBER_KEYSTORE_PASSWORD }}
-          # The alias isn't secret, and as a secret GitHub would mask every "ember" in the logs.
-          EMBER_KEY_ALIAS: ember
-          EMBER_KEY_PASSWORD: ${{ secrets.EMBER_KEY_PASSWORD }}
         run: >
           ./gradlew --stacktrace
           :api:test :app:lintDebug :app:verifyRoborazziDebug
@@ -200,14 +205,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Android 16 reaches Flare through adb reverse.
+          # Both reach the runner's Flare through the emulator's alias for the host.
           - android: '16'
             api: 36
             image: '36'
-            url: http://localhost:3000
-          # Android 17 connects to a local network address, which exercises its
-          # local network permission prompt.
-          # Android 17's SDK packages carry a minor version, such as platforms;android-37.0.
+            url: http://10.0.2.2:3000
+          # On Android 17 that's a local network address, which exercises the local
+          # network permission prompt. Its SDK packages carry a minor version, such
+          # as platforms;android-37.0.
           - android: '17'
             api: '37.0'
             image: '37.0'
@@ -254,6 +259,8 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7
+          # The default data partition is too small for Android 17 to install anything.
+          disk-size: 6G
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           script: scripts/ci/run-e2e.sh "dist/${{ needs.plan.outputs.apk }}" e2e-apk/e2e-debug.apk "e2e-results"

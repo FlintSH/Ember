@@ -20,6 +20,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.BufferedInputStream
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.io.InputStream
 
@@ -245,18 +246,20 @@ class FlareClient(
         }
     }
 
-    private suspend fun probe(builder: Request.Builder): Access = try {
+    /**
+     * Network failures, outages, and rate limits propagate, so a temporary problem
+     * isn't mistaken for a missing scope.
+     */
+    private suspend fun probe(builder: Request.Builder): Access =
         execute(builder.build()).use { response ->
             when (response.code) {
                 in 200..299, 400, 404 -> Access.GRANTED
                 401 -> Access.NOT_IN_TOKEN
                 403 -> Access.DENIED_BY_ROLE
+                408, 425, 429, in 500..599 -> throw response.toFlareException()
                 else -> Access.UNKNOWN
             }
         }
-    } catch (_: FlareException.Network) {
-        Access.UNKNOWN
-    }
 
     private suspend fun <T> send(builder: Request.Builder, serializer: KSerializer<T>): T {
         val response = execute(builder.build())
@@ -266,12 +269,25 @@ class FlareClient(
             return try {
                 json.decodeFromString(serializer, body)
             } catch (error: SerializationException) {
-                throw unexpected("Flare sent a response Ember couldn't read.", error)
+                throw unreadable(it, error)
             } catch (error: IllegalArgumentException) {
-                throw unexpected("Flare sent a response Ember couldn't read.", error)
+                throw unreadable(it, error)
             }
         }
     }
+
+    /**
+     * Flare's API always answers with JSON. Anything else came from something in
+     * between, such as a Wi-Fi sign-in page, so the request never reached Flare
+     * and is safe to repeat. Unreadable JSON did come from Flare, which may have
+     * stored the file, so repeating it could upload a duplicate.
+     */
+    private fun unreadable(response: Response, cause: Throwable): FlareException =
+        if (response.body.contentType()?.subtype?.contains("json") == true) {
+            unexpected("Flare sent a response Ember couldn't read.", cause)
+        } else {
+            FlareException.Network(IOException("Something other than Flare answered. If this network has a sign-in page, sign in first.", cause))
+        }
 
     private suspend fun execute(request: Request, authenticated: Boolean = true): Response {
         val finalRequest = if (authenticated) {
@@ -303,10 +319,12 @@ class FlareClient(
 
     private fun openSource(source: UploadSource): InputStream = try {
         source.open()
+    } catch (error: FileNotFoundException) {
+        throw FlareException.SourceUnavailable("${source.fileName} is no longer available.", error)
+    } catch (error: SecurityException) {
+        throw FlareException.SourceUnavailable("Ember lost permission to read ${source.fileName}.", error)
     } catch (error: IOException) {
         throw FlareException.Network(IOException("Couldn't read ${source.fileName}: ${error.message}", error))
-    } catch (error: SecurityException) {
-        throw FlareException.Forbidden("Ember lost permission to read ${source.fileName}.")
     }
 
     private fun Response.bodyText(): String = try {
@@ -333,6 +351,7 @@ class FlareClient(
             401 -> FlareException.Unauthorized()
             403 -> FlareException.Forbidden(serverMessage ?: "Your Flare account isn't allowed to do this.")
             404 -> FlareException.NotFound(serverMessage ?: "Flare couldn't find that.")
+            408, 425 -> FlareException.Server(code, serverMessage ?: "Flare took too long to answer (HTTP $code).")
             409 -> FlareException.Conflict(serverMessage ?: "Flare's storage changed during the upload. Try again.")
             413 -> FlareException.TooLarge(serverMessage ?: "The file is larger than this Flare instance accepts.")
             429 -> FlareException.RateLimited(header("Retry-After")?.toLongOrNull() ?: DEFAULT_RETRY_AFTER_SECONDS)

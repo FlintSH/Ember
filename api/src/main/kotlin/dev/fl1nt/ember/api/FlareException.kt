@@ -44,9 +44,23 @@ sealed class FlareException(message: String, cause: Throwable? = null) : Excepti
         override val isRetryable: Boolean get() = true
     }
 
+    /**
+     * A server-side failure. Outages, restarts, gateway errors, and timeouts are
+     * worth retrying; Flare cleans up an upload it couldn't commit, so a retry
+     * doesn't create a duplicate.
+     */
     class Server(val status: Int, message: String) : FlareException(message) {
-        override val isRetryable: Boolean get() = status == 502 || status == 503 || status == 504
+        override val isRetryable: Boolean get() = status in RETRYABLE_STATUSES
+
+        private companion object {
+            // 408 Request Timeout, 425 Too Early, 5xx outages, Wi-Fi sign-in pages (511),
+            // and Cloudflare's origin errors.
+            val RETRYABLE_STATUSES = setOf(408, 425, 500, 502, 503, 504, 511, 520, 521, 522, 523, 524, 530)
+        }
     }
+
+    /** The file to upload couldn't be read, for example because it was deleted. */
+    class SourceUnavailable(message: String, cause: Throwable) : FlareException(message, cause)
 
     /** The server answered, but not in a way Flare would. */
     class UnexpectedResponse(message: String, cause: Throwable? = null) : FlareException(message, cause)
