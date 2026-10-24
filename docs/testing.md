@@ -61,4 +61,6 @@ FLARE_URL=http://localhost:3000 FLARE_TOKEN=flr_... EMBER_PACKAGE=dev.fl1nt.embe
 
 The script clears Ember's data first. It saves a screenshot of every step, a screen recording, and logcat to the output folder, and CI attaches them to the run as `e2e-android-16` and `e2e-android-17`. Use them for review: they show the real app talking to a real server.
 
+CI runs Android 17 on Google's automated test device image (`google_atd`), because the Google APIs image restarted its system services right after booting on every run. The test image drives the app the same way, but it doesn't draw the screen, so its screenshots and recording are blank. Review the Android 16 ones instead.
+
 On Android 17, CI connects through `10.0.2.2`, a local network address, so the run also covers Android 17's local network permission prompt. On Android 16 it uses `adb reverse` and `localhost`.

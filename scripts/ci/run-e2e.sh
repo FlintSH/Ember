@@ -58,8 +58,12 @@ adb shell am instrument -w -r \
   dev.fl1nt.ember.e2e/androidx.test.runner.AndroidJUnitRunner > "$out/instrumentation.txt" || status=$?
 
 adb shell pkill -INT screenrecord || true
+# screenrecord finishes writing the file after it's told to stop.
+for _ in $(seq 1 20); do
+  adb shell pidof screenrecord >/dev/null 2>&1 || break
+  sleep 1
+done
 wait "$recorder" || true
-sleep 3
 adb pull /sdcard/Download/ember-e2e "$out/" || true
 adb pull /sdcard/Download/ember-journey.mp4 "$out/" || true
 adb logcat -d > "$out/logcat.txt" || true
