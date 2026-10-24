@@ -15,8 +15,19 @@ out=$3
 mkdir -p "$out"
 
 adb wait-for-device
-# The package manager can refuse work for a little while after boot.
-adb shell 'until pm path android >/dev/null 2>&1; do sleep 2; done'
+# Booting reports done before the package manager and shared storage settle, and
+# Android 17 images can restart their system services once right after boot.
+wait_ready() {
+  for _ in $(seq 1 60); do
+    if adb shell '[ "$(getprop sys.boot_completed)" = 1 ] && pm path android >/dev/null 2>&1 && ls /sdcard/Download >/dev/null 2>&1'; then
+      return 0
+    fi
+    sleep 3
+  done
+  echo "::error::The emulator didn't finish starting"
+  return 1
+}
+wait_ready
 install() {
   for attempt in 1 2 3 4; do
     adb install -r "$1" && return 0
@@ -32,6 +43,7 @@ case "$FLARE_URL" in
 esac
 install "$app_apk"
 install "$test_apk"
+wait_ready
 adb shell rm -rf /sdcard/Download/ember-e2e /sdcard/Download/ember-journey.mp4
 
 adb shell screenrecord --bit-rate 6000000 --time-limit 180 /sdcard/Download/ember-journey.mp4 &
