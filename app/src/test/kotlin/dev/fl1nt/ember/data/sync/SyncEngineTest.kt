@@ -2,6 +2,7 @@ package dev.fl1nt.ember.data.sync
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import androidx.core.content.getSystemService
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -31,6 +32,7 @@ import dev.fl1nt.ember.data.settings.UploadPreset
 import dev.fl1nt.ember.data.uploads.UploadRepository
 import dev.fl1nt.ember.data.uploads.UploadStaging
 import dev.fl1nt.ember.data.uploads.Uploader
+import dev.fl1nt.ember.data.uploads.canRetry
 import dev.fl1nt.ember.system.MediaAccess
 import dev.fl1nt.ember.testDataStore
 import dev.fl1nt.ember.work.Attention
@@ -49,6 +51,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowStatFs
 import java.io.File
 
 /** Runs the sync engine and uploader end to end against a fake Flare server. */
@@ -82,7 +85,10 @@ class SyncEngineTest {
             Capabilities(Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.NOT_IN_TOKEN),
             displayName = "Test Flare",
         )
-        staging = UploadStaging(context, temp.newFolder("staging"))
+        val stagingRoot = temp.newFolder("staging")
+        // Robolectric reports no free space unless told otherwise; this is about 2 GB.
+        ShadowStatFs.registerStats(stagingRoot, 1_000_000, 500_000, 500_000)
+        staging = UploadStaging(context, stagingRoot)
         uploader = Uploader(context, db, staging, FakeCipher(), accounts, settings, Notifier(context))
         connection = FlareConnection(accounts, OkHttpClient())
         WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
@@ -450,6 +456,25 @@ class SyncEngineTest {
         assertThat(outcome).isInstanceOf(Uploader.Outcome.Failed::class.java)
         assertThat(server.requestCount).isEqualTo(0)
         assertThat(db.uploads().get(queued.id)!!.failureMessage).contains("password")
+    }
+
+    @Test
+    fun `a share that failed to copy in can be copied again while the sheet is open`() = runBlocking<Unit> {
+        val path = File(temp.root, "boarding-pass.png")
+        val batch = repository.enqueueFiles(listOf(Uri.fromFile(path)), UploadOrigin.SHARE, UploadPreset(), password = "hunter2")
+        val failed = db.uploads().observeBatch(batch).firstValue().single()
+        assertThat(failed.status).isEqualTo(UploadStatus.FAILED)
+        assertThat(failed.stagedPath).isNull()
+        assertThat(failed.failureKind).isEqualTo(FailureKind.SOURCE_GONE)
+        // Library can't retry it: Ember has no copy and no permission to read the original.
+        assertThat(failed.canRetry).isFalse()
+
+        path.writeBytes(PNG_BYTES)
+        assertThat(repository.restage(failed.id, Uri.fromFile(path), "hunter2")).isTrue()
+        val queued = db.uploads().get(failed.id)!!
+        assertThat(queued.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(File(queued.stagedPath!!).readBytes()).isEqualTo(PNG_BYTES)
+        assertThat(queued.sealedPassword).isEqualTo(FakeCipher().encrypt("hunter2"))
     }
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()
