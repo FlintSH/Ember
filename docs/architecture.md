@@ -13,7 +13,7 @@ Ember is a Kotlin app built with Jetpack Compose. It has three Gradle modules.
 `FlareClient` wraps the routes a named token can use, plus `GET /api/folders` for the account upload token:
 
 - `probeCapabilities()` checks access without side effects ([the requests](getting-started.md#connect)).
-- `upload()` streams a file as one multipart request, or through the chunked upload API for files of 24 MiB or more, in 8 MiB parts that retry on their own. Pastes always use one request, because only it carries Flare's `X-Flare-Paste` flag.
+- `upload()` streams a file as one multipart request, or through the chunked upload API for files of 8 MiB or more, in 8 MiB parts that retry on their own. Next.js, which Flare runs on, cuts request bodies at 10 MiB, so no request or part may be larger. Pastes always use one request, because only it carries Flare's `X-Flare-Paste` flag.
 - `listFiles()`, `createShortLink()`, `listShortLinks()`, `deleteShortLink()`, `listFolders()`.
 
 Details that matter:

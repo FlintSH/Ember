@@ -136,12 +136,6 @@ internal data class ChunkSession(val uploadId: String, val fileKey: String? = nu
 internal data class UploadedPart(val etag: String)
 
 @Serializable
-internal data class CompletedPart(
-    @SerialName("PartNumber") val partNumber: Int,
-    @SerialName("ETag") val etag: String,
-)
-
-@Serializable
 internal data class CompleteRequest(val parts: List<CompletedPart>)
 
 @Serializable

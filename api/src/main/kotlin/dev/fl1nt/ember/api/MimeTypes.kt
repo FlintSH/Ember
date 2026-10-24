@@ -1,14 +1,17 @@
 package dev.fl1nt.ember.api
 
+import dev.fl1nt.ember.api.internal.FileTypeSniffer
+
 /**
  * Chooses the MIME type Ember claims for an upload.
  *
- * Flare checks a file's leading bytes against the claimed type and rejects a
- * mismatch, so claiming `application/octet-stream` for a PNG fails. Content
- * providers sometimes report nothing or a wrong type. [resolve] sniffs common
- * signatures and applies the same equivalence rules as Flare's
- * `lib/security/file-validation.ts`, preferring the most specific type that the
- * server will accept.
+ * Flare reads a file's first 4100 bytes with the `file-type` package and rejects
+ * a claimed type that doesn't match what it detects, so claiming
+ * `application/octet-stream` for a PNG fails. Content providers sometimes report
+ * nothing, a generic type, or a spelling Flare doesn't accept. [sniff] repeats
+ * Flare's detection and [resolve] applies the equivalence rules of Flare's
+ * `lib/security/file-validation.ts`, keeping the most specific type the server
+ * will accept.
  */
 object MimeTypes {
     const val OCTET_STREAM = "application/octet-stream"
@@ -16,6 +19,11 @@ object MimeTypes {
     /** Bytes [sniff] needs. Matches the window Flare's detector reads. */
     const val HEADER_BYTES = 4100
 
+    /**
+     * The declared type when Flare will accept it, then the extension's, then the
+     * detected one. Detection often names only a container, such as ZIP for an
+     * APK or MP4 for an M4A recording, so a consistent declared type is kept.
+     */
     fun resolve(declared: String?, header: ByteArray, fileName: String): String {
         val claimed = declared?.normalized()?.takeIf { it.isSpecific() }
         val byExtension = fromExtension(fileName)
@@ -44,74 +52,12 @@ object MimeTypes {
         return EXTENSIONS[fileName.substring(dot + 1).lowercase()]
     }
 
-    /** Detects strong binary signatures. Text formats are left to the declared type. */
-    fun sniff(header: ByteArray): String? {
-        val h = header
-        fun at(offset: Int, vararg bytes: Int): Boolean =
-            h.size >= offset + bytes.size && bytes.indices.all { (h[offset + it].toInt() and 0xFF) == bytes[it] }
-        fun ascii(offset: Int, text: String): Boolean =
-            h.size >= offset + text.length && text.indices.all { h[offset + it].toInt() == text[it].code }
-
-        return when {
-            at(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> "image/png"
-            at(0, 0xFF, 0xD8, 0xFF) -> "image/jpeg"
-            ascii(0, "GIF87a") || ascii(0, "GIF89a") -> "image/gif"
-            ascii(0, "RIFF") && ascii(8, "WEBP") -> "image/webp"
-            ascii(0, "RIFF") && ascii(8, "WAVE") -> "audio/wav"
-            ascii(0, "RIFF") && ascii(8, "AVI ") -> "video/vnd.avi"
-            ascii(4, "ftyp") -> isoMediaType(h)
-            at(0, 0x1A, 0x45, 0xDF, 0xA3) -> if (containsAscii(h, "webm", 64)) "video/webm" else "video/x-matroska"
-            ascii(0, "%PDF-") -> "application/pdf"
-            at(0, 0x50, 0x4B, 0x03, 0x04) -> "application/zip"
-            at(0, 0x1F, 0x8B, 0x08) -> "application/gzip"
-            at(0, 0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C) -> "application/x-7z-compressed"
-            ascii(0, "Rar!") && at(4, 0x1A, 0x07) -> "application/x-rar-compressed"
-            at(0, 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00) -> "application/x-xz"
-            ascii(0, "BZh") && h.size > 3 && h[3].toInt() in '1'.code..'9'.code -> "application/x-bzip2"
-            ascii(257, "ustar") -> "application/x-tar"
-            ascii(0, "ID3") -> "audio/mpeg"
-            at(0, 0xFF) && h.size > 1 && (h[1].toInt() and 0xF6) == 0xF0 -> "audio/aac"
-            at(0, 0xFF) && h.size > 1 && (h[1].toInt() and 0xE0) == 0xE0 -> "audio/mpeg"
-            ascii(0, "OggS") -> "audio/ogg"
-            ascii(0, "fLaC") -> "audio/x-flac"
-            ascii(0, "#!AMR") -> "audio/amr"
-            ascii(0, "MThd") -> "audio/midi"
-            ascii(0, "II*") && at(3, 0x00) || ascii(0, "MM") && at(2, 0x00, 0x2A) -> "image/tiff"
-            at(0, 0x00, 0x00, 0x01, 0x00) && h.size > 5 && h[4].toInt() != 0 -> "image/x-icon"
-            ascii(0, "BM") && at(6, 0x00, 0x00, 0x00, 0x00) -> "image/bmp"
-            ascii(0, "8BPS") -> "image/vnd.adobe.photoshop"
-            at(0, 0xFF, 0x0A) || at(0, 0x00, 0x00, 0x00, 0x0C, 0x4A, 0x58, 0x4C, 0x20) -> "image/jxl"
-            ascii(0, "SQLite format 3") -> "application/x-sqlite3"
-            at(0, 0x7F, 0x45, 0x4C, 0x46) -> "application/x-elf"
-            at(0, 0x00, 0x61, 0x73, 0x6D) -> "application/wasm"
-            else -> null
-        }
-    }
-
-    private fun isoMediaType(h: ByteArray): String? {
-        if (h.size < 12) return null
-        val brand = String(h, 8, 4, Charsets.ISO_8859_1).trim().lowercase()
-        return when (brand) {
-            "heic", "heix", "hevc", "hevx", "heim", "heis" -> "image/heic"
-            "mif1", "msf1" -> "image/heif"
-            "avif", "avis" -> "image/avif"
-            "qt" -> "video/quicktime"
-            "m4a" -> "audio/x-m4a"
-            "m4v" -> "video/x-m4v"
-            "m4p", "m4b", "f4a", "f4b" -> "audio/mp4"
-            "crx" -> null
-            else -> when {
-                brand.startsWith("3g2") -> "video/3gpp2"
-                brand.startsWith("3g") -> "video/3gpp"
-                else -> "video/mp4"
-            }
-        }
-    }
-
-    private fun containsAscii(h: ByteArray, text: String, within: Int): Boolean {
-        val limit = minOf(h.size, within) - text.length
-        return (0..limit).any { start -> text.indices.all { h[start + it].toInt() == text[it].code } }
-    }
+    /**
+     * The type Flare's detector reports for a file starting with [header], or
+     * `null` when it reports none or Ember can't tell. Ordinary text gets `null`,
+     * so its declared type is used.
+     */
+    fun sniff(header: ByteArray): String? = FileTypeSniffer.detect(header)
 
     private fun String.normalized(): String = substringBefore(';').trim().lowercase()
 
@@ -174,20 +120,34 @@ object MimeTypes {
         "tiff" to "image/tiff",
         "ico" to "image/x-icon",
         "jxl" to "image/jxl",
+        "apng" to "image/apng",
+        // Raw photos, spelled the way Flare's detector names them.
         "dng" to "image/x-adobe-dng",
+        "cr2" to "image/x-canon-cr2",
+        "cr3" to "image/x-canon-cr3",
+        "nef" to "image/x-nikon-nef",
+        "arw" to "image/x-sony-arw",
+        "orf" to "image/x-olympus-orf",
+        "rw2" to "image/x-panasonic-rw2",
+        "raf" to "image/x-fujifilm-raf",
         "mp4" to "video/mp4",
         "m4v" to "video/x-m4v",
         "mov" to "video/quicktime",
         "webm" to "video/webm",
         "mkv" to "video/x-matroska",
         "3gp" to "video/3gpp",
+        "3g2" to "video/3gpp2",
+        "ogv" to "video/ogg",
+        "mpg" to "video/mpeg",
+        "mpeg" to "video/mpeg",
         "avi" to "video/vnd.avi",
         "mp3" to "audio/mpeg",
         "m4a" to "audio/x-m4a",
         "aac" to "audio/aac",
         "ogg" to "audio/ogg",
+        "oga" to "audio/ogg",
         "opus" to "audio/ogg",
-        "flac" to "audio/x-flac",
+        "flac" to "audio/flac",
         "wav" to "audio/wav",
         "amr" to "audio/amr",
         "mid" to "audio/midi",
@@ -213,6 +173,10 @@ object MimeTypes {
         "log" to "text/plain",
         "md" to "text/markdown",
         "csv" to "text/csv",
+        "vcf" to "text/vcard",
+        "ics" to "text/calendar",
+        "vtt" to "text/vtt",
+        "rtf" to "application/rtf",
         "json" to "application/json",
         "xml" to "application/xml",
         "html" to "text/html",
@@ -230,5 +194,6 @@ object MimeTypes {
         "sqlite" to "application/x-sqlite3",
         "db" to "application/x-sqlite3",
         "wasm" to "application/wasm",
+        "ttf" to "font/ttf",
     )
 }

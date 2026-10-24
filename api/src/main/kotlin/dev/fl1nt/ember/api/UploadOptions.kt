@@ -51,6 +51,8 @@ data class UploadOptions(
     init {
         if (password != null) {
             require(password.isNotEmpty()) { "Use null instead of an empty password." }
+            // Flare reads the multipart value "null" as no password, which would leave the file unprotected.
+            require(password != "null") { "Flare can't store the password \"null\". Choose a different password." }
             require(password.toByteArray(Charsets.UTF_8).size <= MAX_PASSWORD_BYTES) {
                 "Flare passwords can be at most $MAX_PASSWORD_BYTES bytes."
             }
