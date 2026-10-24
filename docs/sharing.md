@@ -19,7 +19,7 @@ To skip the review step and upload right away with your defaults, turn off **Set
 ### What happens behind the scenes
 
 - Ember copies each shared file into its own storage first. Android revokes another app's permission to read a file once the share sheet closes, so the copy is what lets an upload finish in the background, or retry after you lose signal. Ember deletes the copy when the upload finishes or you remove it from history. Preparing needs free space for the file plus a 200 MB margin.
-- Files of 24 MiB or more upload through Flare's chunked upload API in 8 MiB parts. A dropped connection only repeats the part it interrupted.
+- Files of 8 MiB or more upload through Flare's chunked upload API in 8 MiB parts. A dropped connection only repeats the part it interrupted.
 - Ember checks each file's real type before uploading. Flare rejects a file whose bytes don't match the type it's sent with, and some apps report types wrongly.
 - Flare allows 30 upload starts per minute from one address. Ember paces itself under that, across shares and sync together.
 - If an upload fails for a temporary reason, such as no connection or a server error, Ember tries again later, up to 8 attempts. Permanent problems, such as a file over your instance's size limit, show in **Library → Recent** with Flare's own explanation.

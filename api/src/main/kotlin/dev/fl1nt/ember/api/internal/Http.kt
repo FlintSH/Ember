@@ -90,24 +90,47 @@ internal class PartBody(
     }
 }
 
-/** Reads exactly [count] bytes or throws when the stream ends early. */
-internal fun InputStream.readFully(target: ByteArray, count: Int) {
-    var offset = 0
-    while (offset < count) {
-        val read = read(target, offset, count - offset)
-        if (read == -1) throw IOException("The file ended after $offset of $count expected bytes.")
-        offset += read
-    }
-}
-
-/** Reads up to [max] bytes without assuming one `read` call fills the buffer. */
-internal fun InputStream.readUpTo(max: Int): ByteArray {
-    val buffer = ByteArray(max)
+/** Fills [target] with up to [count] bytes and returns how many arrived before the stream ended. */
+internal fun InputStream.readInto(target: ByteArray, count: Int): Int {
     var total = 0
-    while (total < max) {
-        val read = read(buffer, total, max - total)
+    while (total < count) {
+        val read = read(target, total, count - total)
         if (read == -1) break
         total += read
     }
-    return if (total == max) buffer else buffer.copyOf(total)
+    return total
+}
+
+/**
+ * Reads up to [max] bytes without assuming one `read` call fills the buffer. The
+ * buffer grows as data arrives, so a short stream doesn't allocate [max] bytes.
+ */
+internal fun InputStream.readAtMost(max: Int): ByteArray {
+    var buffer = ByteArray(minOf(max, 64 * 1024))
+    var total = 0
+    while (total < max) {
+        if (total == buffer.size) buffer = buffer.copyOf(minOf(max, buffer.size * 2))
+        val read = read(buffer, total, buffer.size - total)
+        if (read == -1) break
+        total += read
+    }
+    return if (total == buffer.size) buffer else buffer.copyOf(total)
+}
+
+/** Skips exactly [count] bytes, or returns `false` when the stream ends first. */
+internal fun InputStream.skipFully(count: Long): Boolean {
+    if (count <= 0) return true
+    var remaining = count - 1
+    while (remaining > 0) {
+        val skipped = skip(remaining)
+        if (skipped > 0) {
+            remaining -= skipped
+        } else {
+            // skip() may return 0 before the end; a read tells the two apart.
+            if (read() == -1) return false
+            remaining--
+        }
+    }
+    // FileInputStream.skip can move past the end without saying so, so the last byte is read.
+    return read() != -1
 }

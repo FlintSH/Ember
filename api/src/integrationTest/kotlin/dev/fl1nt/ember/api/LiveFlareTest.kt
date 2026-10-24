@@ -9,9 +9,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.junit.Assume.assumeTrue
 import org.junit.BeforeClass
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
@@ -52,8 +56,15 @@ class LiveFlareTest {
         }
     }
 
-    private fun client(token: String, partSize: Int = FlareClient.DEFAULT_PART_SIZE, threshold: Long = FlareClient.DEFAULT_CHUNK_THRESHOLD) =
-        FlareClient(FlareOrigin.parse(fixture.url), FlareCredential.of(token), http, limiter, partSize, threshold)
+    @get:Rule
+    val temp = TemporaryFolder()
+
+    private fun client(
+        token: String,
+        partSize: Int = FlareClient.DEFAULT_PART_SIZE,
+        threshold: Long = FlareClient.DEFAULT_CHUNK_THRESHOLD,
+        tempDirectory: File? = null,
+    ) = FlareClient(FlareOrigin.parse(fixture.url), FlareCredential.of(token), http, limiter, partSize, threshold, tempDirectory)
 
     private val png: ByteArray = javaClass.getResourceAsStream("/pixel.png")?.readBytes()
         ?: error("pixel.png test resource is missing")
@@ -153,6 +164,45 @@ class LiveFlareTest {
         assertThat(findByName(client, name)?.sizeBytes).isEqualTo(data.size.toLong())
     }
 
+    /** A source that, like some content providers, doesn't report its size. */
+    private class UnsizedSource(override val fileName: String, private val bytes: ByteArray) : UploadSource {
+        override val declaredMimeType: String? = null
+        override val size: Long? = null
+        override fun open(): InputStream = ByteArrayInputStream(bytes)
+    }
+
+    private class Abandoned : RuntimeException()
+
+    private fun download(url: String): ByteArray =
+        http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            assertThat(response.code).isEqualTo(200)
+            response.body.bytes()
+        }
+
+    @Test
+    fun `uploads files that are too large for one request`() = runBlocking {
+        // Next.js cuts a request body at 10 MiB, which once made this a 500.
+        val client = client(fixture.tokens.all)
+        val known = ByteArray(12 * 1024 * 1024) { (it % 253).toByte() }
+        val name = uniqueName("bin")
+        val uploaded = client.upload(BytesUploadSource(name, known), UploadOptions(visibility = Visibility.PUBLIC))
+        assertThat(uploaded.size).isEqualTo(known.size.toLong())
+        assertThat(findByName(client, name)?.sizeBytes).isEqualTo(known.size.toLong())
+        assertThat(download(uploaded.rawUrl!!)).isEqualTo(known)
+
+        val folder = temp.newFolder()
+        val spooling = client(fixture.tokens.all, tempDirectory = folder)
+        val unknown = ByteArray(11 * 1024 * 1024) { (it % 241).toByte() }
+        val unsizedName = uniqueName("bin")
+        val fromStream = spooling.upload(UnsizedSource(unsizedName, unknown), UploadOptions(visibility = Visibility.PUBLIC))
+        assertThat(fromStream.size).isEqualTo(unknown.size.toLong())
+        assertThat(download(fromStream.rawUrl!!)).isEqualTo(unknown)
+        assertThat(folder.listFiles()!!.toList()).isEmpty()
+
+        val small = spooling.upload(UnsizedSource(uniqueName("txt"), "small and unsized\n".toByteArray()))
+        assertThat(small.size).isEqualTo(18)
+    }
+
     @Test
     fun `keeps names that aren't plain ASCII`() = runBlocking {
         val client = client(fixture.tokens.all)
@@ -200,6 +250,61 @@ class LiveFlareTest {
             val uploaded = client.upload(BytesUploadSource("${uniqueName("x").removeSuffix(".x")}-$name", bytes, declared))
             assertWithMessage(name).that(uploaded.type).isEqualTo(expected)
         }
+    }
+
+    @Test
+    fun `continues an abandoned chunked upload where it stopped`() = runBlocking {
+        val partSize = 5 * 1024 * 1024
+        val data = ByteArray(partSize * 2 + 4321) { (it * 7 % 251).toByte() }
+        val name = uniqueName("bin")
+        val client = client(fixture.tokens.all, partSize = partSize, threshold = partSize.toLong())
+        val options = UploadOptions(visibility = Visibility.PUBLIC)
+
+        var saved: ChunkedProgress? = null
+        val stopped = runCatching {
+            client.upload(BytesUploadSource(name, data), options, onChunkedProgress = { state ->
+                saved = state
+                if (state.parts.size == 2) throw Abandoned()
+            })
+        }.exceptionOrNull()
+        assertThat(stopped).isInstanceOf(Abandoned::class.java)
+        // An app keeps the state as JSON between attempts.
+        val resume = ChunkedProgress.fromJson(saved!!.toJson())!!
+        assertThat(resume.parts.map { it.partNumber }).containsExactly(1, 2).inOrder()
+
+        val states = mutableListOf<ChunkedProgress>()
+        val progress = mutableListOf<Long>()
+        val uploaded = client.upload(
+            BytesUploadSource(name, data),
+            options,
+            progress = { sent, _ -> progress += sent },
+            resume = resume,
+            onChunkedProgress = { states += it },
+        )
+        assertThat(states.map { it.uploadId }.distinct()).containsExactly(resume.uploadId)
+        assertThat(states.single().parts.size).isEqualTo(3)
+        assertThat(progress.first()).isEqualTo(partSize * 2L)
+        assertThat(progress.last()).isEqualTo(data.size.toLong())
+        assertThat(uploaded.size).isEqualTo(data.size.toLong())
+        assertThat(download(uploaded.rawUrl!!)).isEqualTo(data)
+
+        // If the completion's response was lost, completing again returns the same file.
+        val again = client.upload(BytesUploadSource(name, data), options, resume = states.single())
+        assertThat(again.pageUrl).isEqualTo(uploaded.pageUrl)
+    }
+
+    @Test
+    fun `starts over when Flare no longer knows the saved session`() = runBlocking {
+        val partSize = 5 * 1024 * 1024
+        val data = ByteArray(partSize + 999) { (it % 199).toByte() }
+        val gone = ChunkedProgress(UUID.randomUUID().toString().replace("-", ""), partSize, data.size.toLong(), listOf(CompletedPart(1, "\"gone\"")))
+        val states = mutableListOf<ChunkedProgress>()
+        val uploaded = client(fixture.tokens.all, partSize = partSize, threshold = partSize.toLong())
+            .upload(BytesUploadSource(uniqueName("bin"), data), UploadOptions(visibility = Visibility.PUBLIC), resume = gone, onChunkedProgress = { states += it })
+        assertThat(states.first().uploadId).isNotEqualTo(gone.uploadId)
+        assertThat(states.first().parts).isEmpty()
+        assertThat(states.last().parts.size).isEqualTo(2)
+        assertThat(download(uploaded.rawUrl!!)).isEqualTo(data)
     }
 
     @Test
