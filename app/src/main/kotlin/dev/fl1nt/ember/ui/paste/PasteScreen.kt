@@ -33,12 +33,12 @@ import androidx.lifecycle.viewModelScope
 import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.api.Expiration
-import dev.fl1nt.ember.api.UploadOptions
 import dev.fl1nt.ember.api.Visibility
 import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.data.db.UploadOrigin
 import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.settings.UploadPreset
+import dev.fl1nt.ember.data.settings.passwordProblem
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.Links
 import dev.fl1nt.ember.system.describeError
@@ -76,7 +76,7 @@ data class PasteState(
     val error: String? = null,
 ) {
     val submitting: Boolean get() = upload != null && upload.status in setOf(UploadStatus.QUEUED, UploadStatus.RUNNING)
-    val passwordTooLong: Boolean get() = password.toByteArray(Charsets.UTF_8).size > UploadOptions.MAX_PASSWORD_BYTES
+    val passwordError: Int? get() = passwordProblem(password)
 }
 
 class PasteViewModel(private val container: AppContainer, initialText: String = "") : ViewModel() {
@@ -107,7 +107,7 @@ class PasteViewModel(private val container: AppContainer, initialText: String = 
             _state.update { it.copy(error = container.application.getString(R.string.paste_error_blank)) }
             return
         }
-        if (current.submitting || current.passwordTooLong) return
+        if (current.submitting || current.passwordError != null) return
         viewModelScope.launch {
             val settings = container.settings.current()
             val preset = UploadPreset(visibility = current.visibility, expiration = current.expiration).over(settings.defaults)
@@ -230,7 +230,7 @@ fun PasteScreen(
             label = stringResource(R.string.field_password),
             placeholder = stringResource(R.string.field_password_placeholder),
             supportingText = stringResource(R.string.field_password_help),
-            errorText = if (state.passwordTooLong) stringResource(R.string.field_password_too_long) else null,
+            errorText = state.passwordError?.let { stringResource(it) },
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             leadingIcon = Lucide.Lock,
@@ -241,7 +241,7 @@ fun PasteScreen(
             stringResource(if (state.submitting) R.string.paste_creating else R.string.paste_create),
             onClick = onSubmit,
             loading = state.submitting,
-            enabled = state.content.isNotBlank() && !state.passwordTooLong,
+            enabled = state.content.isNotBlank() && state.passwordError == null,
             icon = Lucide.Send,
             modifier = Modifier.fillMaxWidth(),
         )

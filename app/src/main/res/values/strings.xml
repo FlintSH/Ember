@@ -175,6 +175,7 @@
     <string name="field_password_placeholder">Optional</string>
     <string name="field_password_help">People who open a public link need this password.</string>
     <string name="field_password_too_long">Flare passwords can be at most 72 bytes.</string>
+    <string name="field_password_null">Flare reads \"null\" as no password. Choose a different one.</string>
 
     <!-- Welcome and connect -->
     <string name="welcome_title">Ember</string>

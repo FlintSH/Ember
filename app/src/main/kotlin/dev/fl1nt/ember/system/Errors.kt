@@ -36,10 +36,14 @@ fun describeError(context: Context, error: Throwable, host: String? = null): Str
         is GeneralSecurityException -> context.getString(R.string.error_secure_storage)
         is FileNotFoundException -> context.getString(R.string.error_file_gone)
         is SecurityException -> context.getString(R.string.error_file_access)
-        is IOException -> context.getString(R.string.error_read)
+        // The disk filling up mid-copy surfaces as a plain IOException.
+        is IOException -> context.getString(if (error.isOutOfSpace()) R.string.error_no_space else R.string.error_read)
         else -> context.getString(R.string.error_generic)
     }
 }
+
+private fun IOException.isOutOfSpace(): Boolean =
+    generateSequence<Throwable>(this) { it.cause }.any { it.message?.contains("ENOSPC") == true || it.message?.contains("No space left") == true }
 
 private fun networkMessage(context: Context, cause: Throwable?, place: String): String {
     val root = generateSequence(cause) { it.cause }.toList()

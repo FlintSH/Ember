@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import dev.fl1nt.ember.AppContainer
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.api.Expiration
-import dev.fl1nt.ember.api.UploadOptions
 import dev.fl1nt.ember.api.Visibility
 import dev.fl1nt.ember.data.account.Account
 import dev.fl1nt.ember.data.db.ShortLinkEntity
@@ -16,6 +15,7 @@ import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.data.settings.EmberSettings
 import dev.fl1nt.ember.data.settings.LinkFormat
 import dev.fl1nt.ember.data.settings.UploadPreset
+import dev.fl1nt.ember.data.settings.passwordProblem
 import dev.fl1nt.ember.data.uploads.canRetry
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.SharedText
@@ -61,7 +61,7 @@ data class ShareState(
     val error: String? = null,
 ) {
     val canShorten: Boolean get() = account?.capabilities?.manageLinks?.isDenied == false
-    val passwordTooLong: Boolean get() = password.toByteArray(Charsets.UTF_8).size > UploadOptions.MAX_PASSWORD_BYTES
+    val passwordError: Int? get() = passwordProblem(password)
     val finished: Int get() = uploads.count { it.status == UploadStatus.DONE }
     val failed: List<UploadEntity> get() = uploads.filter { it.status == UploadStatus.FAILED }
 
@@ -178,7 +178,7 @@ class ShareViewModel(private val container: AppContainer) : ViewModel() {
 
     fun uploadFiles() {
         val current = _state.value
-        if (current.phase != SharePhase.REVIEW_FILES || current.passwordTooLong) return
+        if (current.phase != SharePhase.REVIEW_FILES || current.passwordError != null) return
         _state.update { it.copy(phase = SharePhase.PREPARING, error = null) }
         viewModelScope.launch {
             try {
@@ -200,7 +200,7 @@ class ShareViewModel(private val container: AppContainer) : ViewModel() {
 
     fun submitText() {
         val current = _state.value
-        if (current.phase != SharePhase.REVIEW_TEXT || current.passwordTooLong) return
+        if (current.phase != SharePhase.REVIEW_TEXT || current.passwordError != null) return
         if (current.textAction == TextAction.SHORTEN && current.url != null) shorten(current.url) else paste(current)
     }
 

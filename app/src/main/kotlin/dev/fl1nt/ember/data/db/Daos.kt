@@ -29,8 +29,11 @@ interface UploadDao {
     @Query("SELECT * FROM uploads WHERE batchId = :batchId ORDER BY createdAt, fileName")
     fun observeBatch(batchId: String): Flow<List<UploadEntity>>
 
-    /** The next queued share, paste, or picker upload. Sync uploads run in their own worker. */
-    @Query("SELECT * FROM uploads WHERE status = 'QUEUED' AND origin != 'SYNC' ORDER BY createdAt LIMIT 1")
+    /**
+     * The next queued share, paste, or picker upload. Sync uploads run in their own worker.
+     * Uploads that already failed go behind fresh ones, so one stubborn file doesn't hold up newer shares.
+     */
+    @Query("SELECT * FROM uploads WHERE status = 'QUEUED' AND origin != 'SYNC' ORDER BY attempts, createdAt LIMIT 1")
     suspend fun nextQueued(): UploadEntity?
 
     @Query("SELECT * FROM uploads WHERE syncSourceId = :sourceId AND syncItemKey = :key ORDER BY createdAt DESC LIMIT 1")

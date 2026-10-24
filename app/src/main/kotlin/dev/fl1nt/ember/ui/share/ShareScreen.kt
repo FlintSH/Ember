@@ -206,7 +206,7 @@ private fun ReviewFiles(state: ShareState, callbacks: ShareCallbacks) {
         pluralStringResource(R.plurals.share_upload_files, state.files.size, state.files.size),
         onClick = callbacks.onUploadFiles,
         icon = Lucide.Upload,
-        enabled = !state.passwordTooLong,
+        enabled = state.passwordError == null,
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -250,7 +250,7 @@ private fun ReviewText(state: ShareState, callbacks: ShareCallbacks) {
         stringResource(if (state.textAction == TextAction.SHORTEN) R.string.shorten_create else R.string.paste_create),
         onClick = callbacks.onSubmitText,
         icon = if (state.textAction == TextAction.SHORTEN) Lucide.Zap else Lucide.Send,
-        enabled = !state.passwordTooLong,
+        enabled = state.passwordError == null,
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -267,7 +267,7 @@ private fun Options(state: ShareState, callbacks: ShareCallbacks) {
         onValueChange = callbacks.onPassword,
         label = stringResource(R.string.field_password),
         placeholder = stringResource(R.string.field_password_placeholder),
-        errorText = if (state.passwordTooLong) stringResource(R.string.field_password_too_long) else null,
+        errorText = state.passwordError?.let { stringResource(it) },
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         leadingIcon = Lucide.Lock,
