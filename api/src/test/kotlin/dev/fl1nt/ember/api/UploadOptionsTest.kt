@@ -46,6 +46,14 @@ class UploadOptionsTest {
     }
 
     @Test
+    fun `refuses the password null, which Flare's form parser reads as none`() {
+        val error = assertThrows(IllegalArgumentException::class.java) { UploadOptions(password = "null") }
+        assertThat(error).hasMessageThat().contains("null")
+        UploadOptions(password = "Null")
+        UploadOptions(password = "null1")
+    }
+
+    @Test
     fun `rejects malformed IDs`() {
         assertThrows(IllegalArgumentException::class.java) { Selection.Id(" ") }
         assertThrows(IllegalArgumentException::class.java) { Selection.Id("a b") }
