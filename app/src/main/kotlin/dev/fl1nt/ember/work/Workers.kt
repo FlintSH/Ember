@@ -122,7 +122,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 Result.success()
             }
             is SyncRun.Retry -> Result.retry()
-            is SyncRun.Blocked -> Result.failure()
+            // Home and a notification already show what's wrong. Failing would also cancel the
+            // media trigger this run just armed, which hangs off it.
+            is SyncRun.Blocked -> Result.success()
         }
     }
 

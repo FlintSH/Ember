@@ -26,7 +26,7 @@
 
 **Rejected by Flare.** Flare refused the request and Ember shows its reason, such as a missing folder. A wrong file type usually means the sending app reported the type incorrectly; send the file again from a file manager. Flare also checks pastes this way, so text that starts like another kind of file, such as `<?xml` or `%PDF`, is rejected. Flare's own paste form has the same limit; upload it as a file instead.
 
-**Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Paused** instead, with **Reconnect** on Home.
+**Retrying soon** that never finishes. While Flare can't be reached, Ember keeps waiting and trying again with growing delays. Check that you're online, that Flare is up, and, for a server on your home network, that you're on that network. Other temporary errors retry 8 times for shares and 10 for synced files, then show as failed. A token problem shows as **Paused** instead, with **Reconnect** on Home.
 
 **A link points to the wrong address.** Flare builds links from its `NEXTAUTH_URL` setting. Ask your administrator to set it to the public address.
 

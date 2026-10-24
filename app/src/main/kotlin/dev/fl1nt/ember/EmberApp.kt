@@ -54,5 +54,7 @@ class EmberApp : Application() {
         val account = c.accounts.current() ?: return
         if (account.problem != null || c.localNetwork.needsPermission(account.origin)) return
         c.scheduler.resumeUploads(c.database.uploads().queuedCount())
+        // A run that was blocked may have lost the photo trigger; this re-arms it if so.
+        c.sync.reschedule(force = false)
     }
 }

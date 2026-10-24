@@ -85,7 +85,9 @@ class SyncViewModel(private val container: AppContainer) : ViewModel() {
         localNetworkBlocked.value = false
         viewModelScope.launch {
             container.scheduler.resumeUploads(container.database.uploads().queuedCount())
-            container.scheduler.syncNow(userInitiated = true)
+            container.sync.reschedule(force = false)
+            // Not user-initiated, so a sync that's switched off stays off.
+            container.scheduler.syncNow(userInitiated = false)
         }
     }
 

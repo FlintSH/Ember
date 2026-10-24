@@ -47,7 +47,7 @@ Shares, pastes, and picked files become rows in the `uploads` table and run in `
 
 `Uploader` sends one row and records the outcome:
 
-- Temporary failures put the row back in the queue and the worker returns `retry()`, so WorkManager backs off. Shares give up after 8 attempts; synced files keep waiting.
+- Temporary failures put the row back in the queue and the worker returns `retry()`, so WorkManager backs off. When Flare can't be reached at all (`Failure.unreachable`), the attempt doesn't count. Other temporary failures give up after 8 attempts, or 10 for sync.
 - A rejected token keeps rows queued and records an `AccountProblem`, which Home shows with **Reconnect**. A token the Keystore can no longer decrypt is recorded the same way.
 - Permanent failures are recorded with a readable message: Flare's own text, or one of Ember's for local problems such as a full disk.
 - Once Flare has a file, the bookkeeping runs under `NonCancellable`, so stopping the work at that moment doesn't send the file again.
@@ -61,7 +61,7 @@ Uploads blocked by something outside Ember, like Android 17's local network acce
 
 1. Scans: `MediaStoreScanner` queries an album's bucket, and `DocumentTreeScanner` walks a picked folder's document tree.
 2. Plans with `SyncPlanner`, a pure function: skip files in the ledger, files older than the source's start, hidden or partial files, and files still being written; order oldest first.
-3. Uploads each file through `Uploader` and records it in the ledger as uploaded, permanently failed, or skipped (deleted or cancelled). Temporary failures stay out of the ledger and retry on the next run.
+3. Uploads each file through `Uploader` and records it in the ledger as uploaded, permanently failed, or skipped (cancelled). Temporary failures stay out of the ledger and retry on a later run, after fresh files. A run stops early when Flare is out of reach or several files fail in a row. Deleted files aren't recorded, so a file on a drive that comes back still uploads.
 
 One source that can't be scanned records why and the others continue. Before each file the engine re-reads its source, so pausing or removing a folder stops a running sync. Each run first puts rows cut off by process death back in the queue, and drops unfinished rows whose folder or file is gone.
 

@@ -70,6 +70,7 @@ class SyncEngineTest {
     private lateinit var staging: UploadStaging
     private lateinit var connection: FlareConnection
     private lateinit var repository: UploadRepository
+    private lateinit var stagingRoot: File
     private val found = mutableListOf<SourceItem>()
     private val scanner = SourceScanner { found.toList() }
 
@@ -85,7 +86,7 @@ class SyncEngineTest {
             Capabilities(Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.NOT_IN_TOKEN),
             displayName = "Test Flare",
         )
-        val stagingRoot = temp.newFolder("staging")
+        stagingRoot = temp.newFolder("staging")
         // Robolectric reports no free space unless told otherwise; this is about 2 GB.
         ShadowStatFs.registerStats(stagingRoot, 1_000_000, 500_000, 500_000)
         staging = UploadStaging(context, stagingRoot)
@@ -175,7 +176,8 @@ class SyncEngineTest {
         val history = db.uploads().observeRecent(10).firstValue()
         assertThat(history).hasSize(1)
         assertThat(history.single().status).isEqualTo(UploadStatus.DONE)
-        assertThat(history.single().attempts).isEqualTo(2)
+        // A 503 means Flare was out of reach, which doesn't use up an attempt.
+        assertThat(history.single().attempts).isEqualTo(1)
     }
 
     @Test
@@ -275,7 +277,8 @@ class SyncEngineTest {
 
         assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
         assertThat(server.requestCount).isEqualTo(1)
-        assertThat(db.ledger().get(id, "burst-1.png")!!.state).isEqualTo(LedgerState.SKIPPED)
+        // No ledger entry: a deleted file isn't listed again, and one on a drive that comes back still uploads.
+        assertThat(db.ledger().get(id, "burst-1.png")).isNull()
         assertThat(db.uploads().observeRecent(10).firstValue().map { it.fileName }).containsExactly("burst-2.png")
     }
 
@@ -455,7 +458,10 @@ class SyncEngineTest {
         val outcome = uploader.upload(queued, connection.client()!!)
         assertThat(outcome).isInstanceOf(Uploader.Outcome.Failed::class.java)
         assertThat(server.requestCount).isEqualTo(0)
-        assertThat(db.uploads().get(queued.id)!!.failureMessage).contains("password")
+        val failed = db.uploads().get(queued.id)!!
+        assertThat(failed.failureMessage).contains("password")
+        // Trying again can't fix it, so it isn't offered.
+        assertThat(failed.canRetry).isFalse()
     }
 
     @Test
@@ -468,6 +474,8 @@ class SyncEngineTest {
         assertThat(failed.failureKind).isEqualTo(FailureKind.SOURCE_GONE)
         // Library can't retry it: Ember has no copy and no permission to read the original.
         assertThat(failed.canRetry).isFalse()
+        // The failed copy left nothing behind.
+        assertThat(File(stagingRoot, failed.id).exists()).isFalse()
 
         path.writeBytes(PNG_BYTES)
         assertThat(repository.restage(failed.id, Uri.fromFile(path), "hunter2")).isTrue()
@@ -475,6 +483,66 @@ class SyncEngineTest {
         assertThat(queued.status).isEqualTo(UploadStatus.QUEUED)
         assertThat(File(queued.stagedPath!!).readBytes()).isEqualTo(PNG_BYTES)
         assertThat(queued.sealedPassword).isEqualTo(FakeCipher().encrypt("hunter2"))
+    }
+
+    @Test
+    fun `a file that keeps failing waits behind newer files instead of blocking them`() = runBlocking<Unit> {
+        addSource()
+        found += listOf(file("stubborn.png", ageMinutes = 10), file("fresh.png", ageMinutes = 5))
+        server.enqueue(error(500, "Upload failed"))
+        server.enqueue(ok("fresh.png"))
+
+        // The newer file still uploads, and the run asks to try again soon.
+        assertThat(run()).isEqualTo(SyncRun.Retry(uploaded = 1, reason = "Flare had a problem (HTTP 500). Try again later, or check the server logs."))
+        server.takeRequest()
+        assertThat(server.takeRequest().body!!.utf8()).contains("fresh.png")
+
+        // Next time, a newer file goes first and the stubborn one waits its turn.
+        found += file("newer.png", ageMinutes = 1)
+        server.enqueue(ok("newer.png"))
+        server.enqueue(error(500, "Upload failed"))
+        run()
+        assertThat(server.takeRequest().body!!.utf8()).contains("newer.png")
+        val stubborn = db.uploads().observeRecent(10).firstValue().single { it.fileName == "stubborn.png" }
+        assertThat(stubborn.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(stubborn.attempts).isEqualTo(2)
+    }
+
+    @Test
+    fun `several files failing in a row pause the sync`() = runBlocking<Unit> {
+        addSource()
+        found += (1..4).map { file("photo-$it.png", ageMinutes = 10L - it) }
+        repeat(3) { server.enqueue(error(500, "Storage is offline")) }
+
+        assertThat(run()).isInstanceOf(SyncRun.Retry::class.java)
+        assertThat(server.requestCount).isEqualTo(3)
+        assertThat(db.uploads().observeRecent(10).firstValue()).hasSize(3)
+    }
+
+    @Test
+    fun `a file that fails for the same temporary reason every time counts as failed in the end`() = runBlocking<Unit> {
+        val id = addSource()
+        found += file("cursed.png")
+        repeat(Uploader.SYNC_MAX_ATTEMPTS - 1) {
+            server.enqueue(error(500, "Upload failed"))
+            assertThat(run()).isInstanceOf(SyncRun.Retry::class.java)
+        }
+        server.enqueue(error(500, "Upload failed"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 1))
+        assertThat(db.ledger().get(id, "cursed.png")!!.state).isEqualTo(LedgerState.FAILED)
+    }
+
+    @Test
+    fun `an unreachable server doesn't use up a share's attempts`() = runBlocking<Unit> {
+        repository.enqueuePaste("notes", "notes.txt", UploadOrigin.PASTE, UploadPreset())
+        val id = db.uploads().nextQueued()!!.id
+        repeat(Uploader.MAX_ATTEMPTS + 2) {
+            server.enqueue(error(503, "Service unavailable"))
+            uploader.upload(db.uploads().get(id)!!, connection.client()!!)
+        }
+        val waiting = db.uploads().get(id)!!
+        assertThat(waiting.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(waiting.attempts).isEqualTo(0)
     }
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()

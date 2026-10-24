@@ -43,6 +43,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.fl1nt.ember.R
+import dev.fl1nt.ember.data.db.FailureKind
 import dev.fl1nt.ember.data.db.UploadStatus
 import dev.fl1nt.ember.system.Clipboard
 import dev.fl1nt.ember.system.Links
@@ -288,7 +289,10 @@ private fun Progress(state: ShareState, callbacks: ShareCallbacks) {
                     when (upload.status) {
                         UploadStatus.DONE -> StatusPill(stringResource(R.string.status_uploaded), tone = Tone.SUCCESS, icon = Lucide.CircleCheck)
                         UploadStatus.FAILED -> StatusPill(failureLabel(upload.failureKind), tone = Tone.DANGER, icon = Lucide.CircleAlert)
-                        UploadStatus.QUEUED -> StatusPill(stringResource(R.string.status_waiting), icon = Lucide.Clock)
+                        UploadStatus.QUEUED -> StatusPill(
+                            stringResource(if (upload.failureKind == FailureKind.AUTH) R.string.status_paused else R.string.status_waiting),
+                            icon = Lucide.Clock,
+                        )
                         else -> Unit
                     }
                 }
@@ -299,7 +303,12 @@ private fun Progress(state: ShareState, callbacks: ShareCallbacks) {
             }
         }
     }
-    Text(stringResource(R.string.share_background_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Uploads don't keep going while the token is refused or unreadable; say so instead.
+    if (state.account?.problem != null || state.uploads.any { it.failureKind == FailureKind.AUTH }) {
+        Notice(stringResource(R.string.share_paused_hint), tone = Tone.WARNING)
+    } else {
+        Text(stringResource(R.string.share_background_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     OutlineButton(stringResource(R.string.share_hide), onClick = callbacks.onDismiss, icon = Lucide.ChevronDown, modifier = Modifier.fillMaxWidth())
 }
 

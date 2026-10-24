@@ -133,11 +133,14 @@ class SyncEngine(
         val work = ArrayList<Pair<SyncSourceEntity, SourceItem>>()
         val remaining = HashMap<Long, Int>()
         val settlingBySource = HashMap<Long, Int>()
+        val retrying = HashSet<Pair<Long, String>>()
         for (source in sources) {
             val items = scan(source, now) ?: continue
             // A queued file that's no longer in the folder can never upload.
             val present = items.mapTo(HashSet()) { it.key }
-            db.uploads().queuedForSource(source.id).filter { it.syncItemKey !in present }.forEach { db.uploads().delete(it.id) }
+            val queued = db.uploads().queuedForSource(source.id)
+            queued.filter { it.syncItemKey !in present }.forEach { db.uploads().delete(it.id) }
+            queued.filter { it.attempts > 0 }.forEach { row -> row.syncItemKey?.let { retrying += source.id to it } }
 
             val ledger = db.ledger().forSource(source.id).associateBy { it.itemKey }
             val plan = SyncPlanner.plan(source.type, source.sinceMillis, items, ledger, now, SyncPlanner.settleMillis(source.type, sdk))
@@ -146,10 +149,16 @@ class SyncEngine(
             db.sources().recordScan(source.id, now, plan.toUpload.size + plan.settling, null)
             plan.toUpload.forEach { work += source to it }
         }
+        // Files that failed before go after fresh ones, so one stubborn file doesn't hold up the rest.
+        work.sortBy { (source, item) -> (source.id to item.key) in retrying }
 
         val defaults = prefs.defaults
         var uploaded = 0
         var failed = 0
+        var waiting = 0
+        var lastWaitReason: String? = null
+        var failingInARow = 0
+        val goneInARow = HashMap<Long, Int>()
         // Sources that need attention, or failed in a way that would repeat for every file.
         val stopped = HashSet<Long>()
         work.forEachIndexed { index, (scanned, item) ->
@@ -170,7 +179,10 @@ class SyncEngine(
             val pendingAfter = { left: Int -> left + (settlingBySource[source.id] ?: 0) }
             val left = (remaining.getValue(source.id) - 1).coerceAtLeast(0)
             remaining[source.id] = left
-            when (val outcome = uploadItem(source, item, defaults, client)) {
+            val outcome = uploadItem(source, item, defaults, client)
+            if (outcome !is Uploader.Outcome.Failed || outcome.failure.kind != FailureKind.TRANSIENT) failingInARow = 0
+            if (outcome !is Uploader.Outcome.Failed || outcome.failure.kind != FailureKind.SOURCE_GONE) goneInARow.remove(source.id)
+            when (outcome) {
                 null -> Unit
                 is Uploader.Outcome.Uploaded -> uploaded++
                 is Uploader.Outcome.Failed -> when (outcome.failure.kind) {
@@ -179,14 +191,27 @@ class SyncEngine(
                         notifier.attention(Attention.TOKEN_REJECTED)
                         return SyncRun.Blocked(Attention.TOKEN_REJECTED)
                     }
-                    // Temporary. It stays queued and out of the ledger, so the next run tries again.
-                    FailureKind.TRANSIENT -> return SyncRun.Retry(uploaded, outcome.failure.message)
+                    FailureKind.TRANSIENT -> {
+                        // It stays queued and out of the ledger, so a later run tries again.
+                        // Out of reach, nothing else would get through either; otherwise it
+                        // may be about this file, so carry on unless several fail in a row.
+                        if (outcome.failure.unreachable || ++failingInARow >= MAX_FAILING_IN_A_ROW) {
+                            notifySummary(sources, uploaded, failed)
+                            return SyncRun.Retry(uploaded, outcome.failure.message)
+                        }
+                        waiting++
+                        lastWaitReason = outcome.failure.message
+                        // Still waiting to upload, so it still counts.
+                        remaining[source.id] = left + 1
+                    }
                     FailureKind.SOURCE_GONE -> {
-                        // Deleted since the scan, such as a discarded burst shot. Nothing to report.
+                        // Deleted since the scan, such as a discarded burst shot. Nothing to report,
+                        // and no ledger entry: a deleted file won't be listed again, while one on a
+                        // drive that's back will upload. Several in a row means the drive is gone.
                         db.uploads().delete(outcome.upload.id)
-                        db.ledger().upsert(
-                            LedgerEntity(source.id, item.key, item.fingerprint, LedgerState.SKIPPED, null, outcome.upload.attempts, outcome.failure.message, clock()),
-                        )
+                        val gone = (goneInARow[source.id] ?: 0) + 1
+                        goneInARow[source.id] = gone
+                        if (gone >= MAX_FAILING_IN_A_ROW) stopped += source.id
                     }
                     FailureKind.NO_ACCESS -> {
                         // Not the file's fault. Keep it out of the ledger so it uploads once access is back.
@@ -214,10 +239,16 @@ class SyncEngine(
                     }
                 }
             }
-            if (source.id !in stopped) db.sources().recordScan(source.id, clock(), pendingAfter(left), null)
+            if (source.id !in stopped) db.sources().recordScan(source.id, clock(), pendingAfter(remaining.getValue(source.id)), null)
         }
-        if (uploaded + failed > 0 && sources.any { !it.notifyEach }) notifier.syncSummary(uploaded, failed)
+        notifySummary(sources, uploaded, failed)
+        // Files that are waiting get another try soon, with WorkManager's backoff.
+        lastWaitReason?.let { if (waiting > 0) return SyncRun.Retry(uploaded, it) }
         return SyncRun.Completed(uploaded, failed, settlingBySource.values.sum())
+    }
+
+    private fun notifySummary(sources: List<SyncSourceEntity>, uploaded: Int, failed: Int) {
+        if (uploaded + failed > 0 && sources.any { !it.notifyEach }) notifier.syncSummary(uploaded, failed)
     }
 
     /** Lists a source's files, or records why it couldn't and returns null. One bad folder doesn't stop the rest. */
@@ -308,5 +339,8 @@ class SyncEngine(
         const val FOLDER_MISSING_ERROR = "folder_missing"
         const val SCAN_ERROR = "scan_failed"
         private const val TAG = "EmberSync"
+
+        /** This many failures in a row point at something bigger than one file. */
+        private const val MAX_FAILING_IN_A_ROW = 3
     }
 }

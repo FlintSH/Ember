@@ -81,6 +81,7 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             localNetworkBlocked.value = false
             container.scheduler.resumeUploads(container.database.uploads().queuedCount())
+            container.sync.reschedule(force = false)
             if (container.database.sources().all().any { it.enabled }) container.scheduler.syncNow(userInitiated = false)
         }
     }

@@ -84,9 +84,9 @@ class Uploader(
         val password = try {
             running.sealedPassword?.let(cipher::decrypt)
         } catch (_: GeneralSecurityException) {
-            return fail(running, Failure(FailureKind.OTHER, context.getString(R.string.error_password_locked)))
+            return failLocked(running)
         } catch (_: IllegalArgumentException) {
-            return fail(running, Failure(FailureKind.OTHER, context.getString(R.string.error_password_locked)))
+            return failLocked(running)
         }
         val result = try {
             coroutineScope {
@@ -159,20 +159,23 @@ class Uploader(
     }
 
     /**
-     * Records a failure. Temporary ones go back to the queue: shares give up after
-     * [MAX_ATTEMPTS], while sync keeps the file waiting, because a server that's
-     * only reachable at home shouldn't turn every photo taken elsewhere into a
-     * failure. A rejected token keeps everything queued until someone reconnects.
-     * The sealed password stays, so trying again still sends it.
+     * Records a failure. Temporary ones go back to the queue. When Flare can't be
+     * reached at all, the upload waits without using up an attempt, because a server
+     * that's only reachable at home shouldn't fail every photo taken elsewhere. Other
+     * temporary failures give up after [MAX_ATTEMPTS], or [SYNC_MAX_ATTEMPTS] for sync.
+     * A rejected token keeps everything queued until someone reconnects. The sealed
+     * password stays, so trying again still sends it.
      */
     private suspend fun fail(upload: UploadEntity, failure: Failure): Outcome {
-        // A rejected token pauses the queue until someone reconnects, then everything continues.
         val waitsForReconnect = failure.kind == FailureKind.AUTH
-        val retryable = waitsForReconnect || (failure.isTransient && (upload.origin == UploadOrigin.SYNC || upload.attempts < MAX_ATTEMPTS))
+        val attempts = if (failure.unreachable) upload.attempts - 1 else upload.attempts
+        val limit = if (upload.origin == UploadOrigin.SYNC) SYNC_MAX_ATTEMPTS else MAX_ATTEMPTS
+        val retryable = waitsForReconnect || (failure.isTransient && (failure.unreachable || attempts < limit))
         // Out of retries: report the last cause instead of "temporary".
         val kind = if (!retryable && failure.kind == FailureKind.TRANSIENT) FailureKind.OTHER else failure.kind
         val updated = upload.copy(
             status = if (retryable) UploadStatus.QUEUED else UploadStatus.FAILED,
+            attempts = attempts,
             bytesSent = 0,
             failureKind = kind,
             failureMessage = failure.message,
@@ -180,10 +183,18 @@ class Uploader(
             completedAt = if (retryable) null else clock(),
         )
         db.uploads().update(updated)
-        if (!retryable && upload.notify && kind != FailureKind.AUTH) {
+        // Sync handles a deleted or unreadable file itself: it skips the file, or asks for access.
+        val syncHandles = upload.origin == UploadOrigin.SYNC && (kind == FailureKind.SOURCE_GONE || kind == FailureKind.NO_ACCESS)
+        if (!retryable && upload.notify && kind != FailureKind.AUTH && !syncHandles) {
             notifier.uploadFailed(upload.id, upload.fileName, failure.message)
         }
         return Outcome.Failed(updated, failure.copy(kind = kind))
+    }
+
+    /** Trying again can't fix a password Ember can't decrypt, so the prepared copy goes too. */
+    private suspend fun failLocked(upload: UploadEntity): Outcome {
+        staging.delete(upload.stagedPath)
+        return fail(upload.copy(stagedPath = null, sealedPassword = null), Failure(FailureKind.OTHER, context.getString(R.string.error_password_locked)))
     }
 
     private fun sourceFor(upload: UploadEntity): UploadSource {
@@ -198,6 +209,9 @@ class Uploader(
 
     companion object {
         const val MAX_ATTEMPTS = 8
+
+        /** Sync is less hurried than a share someone is waiting on. */
+        const val SYNC_MAX_ATTEMPTS = 10
         private const val PROGRESS_INTERVAL_MILLIS = 500L
     }
 }

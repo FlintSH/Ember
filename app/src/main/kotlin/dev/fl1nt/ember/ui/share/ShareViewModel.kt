@@ -105,6 +105,8 @@ class ShareViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             launch { _state.update { it.copy(folders = fetchFolders(container)) } }
+            // Stay current, so a token problem that starts mid-upload shows up in the sheet.
+            launch { container.accounts.account.collect { latest -> _state.update { it.copy(account = latest) } } }
             when (request) {
                 is ShareRequest.Files -> loadFiles(request)
                 is ShareRequest.Text -> loadText(request.text, request.mode, request.readOnly)

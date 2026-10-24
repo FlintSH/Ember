@@ -33,7 +33,8 @@ class UploadStaging(
 ) {
     private val resolver: ContentResolver get() = context.contentResolver
 
-    suspend fun stage(uri: Uri, uploadId: String): StagedFile = withContext(Dispatchers.IO) {
+    /** Copies [uri] for [uploadId]. A copy that fails is deleted, so a partial file never holds on to space. */
+    suspend fun stage(uri: Uri, uploadId: String): StagedFile = cleaningUp(uploadId) {
         val (name, reportedSize) = describe(uri)
         val mimeType = resolver.getType(uri)
         val displayName = safeName(name, mimeType)
@@ -54,7 +55,16 @@ class UploadStaging(
         StagedFile(target, displayName, mimeType, target.length())
     }
 
-    suspend fun stageText(text: String, fileName: String, uploadId: String): StagedFile = withContext(Dispatchers.IO) {
+    private suspend fun cleaningUp(uploadId: String, block: suspend () -> StagedFile): StagedFile = withContext(Dispatchers.IO) {
+        try {
+            block()
+        } catch (error: Throwable) {
+            discard(uploadId)
+            throw error
+        }
+    }
+
+    suspend fun stageText(text: String, fileName: String, uploadId: String): StagedFile = cleaningUp(uploadId) {
         val displayName = safeName(fileName, "text/plain")
         val target = File(directory(uploadId), displayName)
         target.writeText(text, Charsets.UTF_8)
@@ -96,7 +106,6 @@ class UploadStaging(
         File(root, uploadId).deleteRecursively()
     }
 
-    /** Removes copies whose uploads no longer exist. */
     /**
      * Deletes copies no upload refers to anymore. Folders changed within [graceMillis]
      * may belong to a share that's still being prepared and has no row yet.

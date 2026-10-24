@@ -518,6 +518,7 @@
     <string name="share_shorten_hint">Creates a short link under your Flare domain.</string>
     <string name="share_replaces_selection">The link replaces the text you selected.</string>
     <string name="share_background_hint">You can close this. Uploads keep going in the background.</string>
+    <string name="share_paused_hint">Uploads are paused until you reconnect Ember. Open Ember and choose Reconnect, and they continue.</string>
     <string name="share_hide">Hide</string>
     <string name="share_done">Done. Your link is ready.</string>
     <string name="share_done_copied">Done. Link copied.</string>
