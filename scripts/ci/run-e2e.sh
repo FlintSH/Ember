@@ -15,13 +15,23 @@ out=$3
 mkdir -p "$out"
 
 adb wait-for-device
+# The package manager can refuse work for a little while after boot.
+adb shell 'until pm path android >/dev/null 2>&1; do sleep 2; done'
+install() {
+  for attempt in 1 2 3 4; do
+    adb install -r "$1" && return 0
+    echo "Installing $1 failed (attempt $attempt). Retrying."
+    sleep 10
+  done
+  return 1
+}
 # A localhost address reaches the host's Flare through adb. The emulator's own
 # alias for the host, 10.0.2.2, needs nothing extra.
 case "$FLARE_URL" in
   *://localhost:*) adb reverse tcp:3000 tcp:3000 ;;
 esac
-adb install -r "$app_apk"
-adb install -r "$test_apk"
+install "$app_apk"
+install "$test_apk"
 adb shell rm -rf /sdcard/Download/ember-e2e /sdcard/Download/ember-journey.mp4
 
 adb shell screenrecord --bit-rate 6000000 --time-limit 180 /sdcard/Download/ember-journey.mp4 &

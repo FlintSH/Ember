@@ -10,5 +10,8 @@
         <package android:name="dev.fl1nt.ember.debug" />
     </queries>
 
-    <application android:label="Ember end-to-end tests" />
+    <!-- The test server is plain HTTP on the emulator's host. -->
+    <application
+        android:label="Ember end-to-end tests"
+        android:usesCleartextTraffic="true" />
 </manifest>
