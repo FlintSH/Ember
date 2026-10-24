@@ -76,6 +76,12 @@ data class UploadEntity(
      * an interrupted large upload continues instead of starting over.
      */
     val chunkProgress: String? = null,
+    /**
+     * For synced files, the [dev.fl1nt.ember.data.sync.SourceItem.fingerprint] when the
+     * upload started. Flare fixes a chunked upload's options and bytes when it begins,
+     * so a changed file or folder setting starts a new one.
+     */
+    val sourceFingerprint: String? = null,
 )
 
 enum class SourceType {

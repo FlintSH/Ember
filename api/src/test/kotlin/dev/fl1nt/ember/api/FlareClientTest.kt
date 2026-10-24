@@ -583,8 +583,27 @@ class FlareClientTest {
         server.enqueue(session())
         server.enqueue(part("e1"))
         val error = runCatching { client(partSize = partSize, threshold = partSize.toLong()).upload(short) }.exceptionOrNull()
-        assertThat(error).isInstanceOf(FlareException.Network::class.java)
+        // A problem with the file, not the connection, so the app doesn't blame the network.
+        assertThat(error).isInstanceOf(FlareException.SourceRead::class.java)
         assertThat((error as FlareException).isRetryable).isTrue()
+    }
+
+    @Test
+    fun `a completion that failed on Flare's side starts the upload over once`() = runTest {
+        val data = ByteArray(partSize + 10) { it.toByte() }
+        server.enqueue(session("first"))
+        server.enqueue(part("e1"))
+        server.enqueue(part("e2"))
+        // Flare discarded the parts and answers every later completion of this session the same way.
+        repeat(4) { server.enqueue(json(500, """{"error":"Upload could not be completed."}""")) }
+        server.enqueue(session("second"))
+        server.enqueue(part("e1"))
+        server.enqueue(part("e2"))
+        server.enqueue(json(200, completed))
+
+        client(partSize = partSize, threshold = partSize.toLong()).upload(BytesUploadSource("film.bin", data))
+        val paths = (1..server.requestCount).map { server.takeRequest().url.encodedPath }
+        assertThat(paths.last()).isEqualTo("/api/files/chunks/second/complete")
     }
 
     @Test

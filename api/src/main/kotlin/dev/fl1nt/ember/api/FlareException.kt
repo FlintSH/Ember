@@ -62,6 +62,14 @@ sealed class FlareException(message: String, cause: Throwable? = null) : Excepti
     /** The file to upload couldn't be read, for example because it was deleted. */
     class SourceUnavailable(message: String, cause: Throwable) : FlareException(message, cause)
 
+    /**
+     * Reading the file failed partway, or copying it for the upload did, for example
+     * when the phone ran out of space. Worth another try, like a dropped connection.
+     */
+    class SourceRead(message: String, cause: IOException) : FlareException(message, cause) {
+        override val isRetryable: Boolean get() = true
+    }
+
     /** The server answered, but not in a way Flare would. */
     class UnexpectedResponse(message: String, cause: Throwable? = null) : FlareException(message, cause)
 }

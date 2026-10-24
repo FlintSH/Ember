@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "ed6845d5f36304460e6d8f41cf2c57b8",
+    "identityHash": "5845f43f6ca10074f77144e0ab756700",
     "entities": [
       {
         "tableName": "uploads",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `batchId` TEXT, `origin` TEXT NOT NULL, `isPaste` INTEGER NOT NULL, `fileName` TEXT NOT NULL, `mimeType` TEXT, `sizeBytes` INTEGER, `stagedPath` TEXT, `sourceUri` TEXT, `syncSourceId` INTEGER, `syncItemKey` TEXT, `presetJson` TEXT NOT NULL, `sealedPassword` TEXT, `status` TEXT NOT NULL, `bytesSent` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `failureKind` TEXT, `failureMessage` TEXT, `pageUrl` TEXT, `rawUrl` TEXT, `copyLink` INTEGER NOT NULL, `notify` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `chunkProgress` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `batchId` TEXT, `origin` TEXT NOT NULL, `isPaste` INTEGER NOT NULL, `fileName` TEXT NOT NULL, `mimeType` TEXT, `sizeBytes` INTEGER, `stagedPath` TEXT, `sourceUri` TEXT, `syncSourceId` INTEGER, `syncItemKey` TEXT, `presetJson` TEXT NOT NULL, `sealedPassword` TEXT, `status` TEXT NOT NULL, `bytesSent` INTEGER NOT NULL, `attempts` INTEGER NOT NULL, `failureKind` TEXT, `failureMessage` TEXT, `pageUrl` TEXT, `rawUrl` TEXT, `copyLink` INTEGER NOT NULL, `notify` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `completedAt` INTEGER, `chunkProgress` TEXT, `sourceFingerprint` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -148,6 +148,11 @@
           {
             "fieldPath": "chunkProgress",
             "columnName": "chunkProgress",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceFingerprint",
+            "columnName": "sourceFingerprint",
             "affinity": "TEXT"
           }
         ],
@@ -445,7 +450,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ed6845d5f36304460e6d8f41cf2c57b8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5845f43f6ca10074f77144e0ab756700')"
     ]
   }
 }

@@ -11,9 +11,8 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Expected types are what file-type 21.3.4, the detector Flare 3.0.0 runs,
- * reports for the same bytes. The exception is text that file-type reads as a
- * binary format, such as "BMW owners club" as a bitmap, which Ember leaves to the
- * declared type.
+ * reports for the same bytes, including its guesses about text: Flare rejects
+ * any other claim for those bytes.
  */
 class MimeTypesTest {
 
@@ -41,13 +40,22 @@ class MimeTypesTest {
     }
 
     @Test
-    fun `leaves text alone`() {
+    fun `leaves ordinary text alone`() {
         assertThat(MimeTypes.sniff("hello world".toByteArray())).isNull()
         assertThat(MimeTypes.sniff("{\"a\":1}".toByteArray())).isNull()
-        assertThat(MimeTypes.sniff("BMW owners club".toByteArray())).isNull()
-        assertThat(MimeTypes.sniff("GIFs I like".toByteArray())).isNull()
         assertThat(MimeTypes.sniff("<svg xmlns=\"http://www.w3.org/2000/svg\"/>".toByteArray())).isNull()
         assertThat(MimeTypes.sniff(ByteArray(0))).isNull()
+    }
+
+    @Test
+    fun `makes the same guesses about text that Flare's detector makes`() {
+        // Flare would reject a text claim for these, so Ember claims what Flare sees.
+        assertThat(MimeTypes.resolve("text/plain", "BMW owners club".toByteArray(), "cars.txt")).isEqualTo("image/bmp")
+        assertThat(MimeTypes.resolve("text/plain", "GIFs I like".toByteArray(), "list.txt")).isEqualTo("image/gif")
+        assertThat(MimeTypes.resolve("text/plain", "MZ notes".toByteArray(), "notes.txt")).isEqualTo("application/x-msdownload")
+        // A UTF-16 byte order mark reads as an MPEG audio frame, as Windows "Unicode Text" exports do.
+        val unicodeCsv = bytes(0xFF, 0xFE) + "name,city\r\n".toByteArray(Charsets.UTF_16LE)
+        assertThat(MimeTypes.resolve("text/csv", unicodeCsv, "export.csv")).isEqualTo("audio/mpeg")
     }
 
     @Test
@@ -244,7 +252,6 @@ class MimeTypesTest {
             "PE\u0000\u0000".toByteArray().copyInto(it, 0x80)
         }
         assertThat(MimeTypes.sniff(exe)).isEqualTo("application/x-msdownload")
-        assertThat(MimeTypes.sniff("MZ notes".toByteArray())).isNull()
     }
 
     @Test

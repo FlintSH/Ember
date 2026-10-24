@@ -308,7 +308,7 @@ class FlareClient(
         val file = try {
             File.createTempFile("ember-upload-", ".tmp", tempDirectory)
         } catch (error: IOException) {
-            throw FlareException.Network(IOException("Couldn't prepare $fileName for upload: ${error.message}", error))
+            throw FlareException.SourceRead("Couldn't prepare $fileName for upload: ${error.message}", error)
         }
         try {
             FileOutputStream(file).use { out ->
@@ -325,7 +325,7 @@ class FlareClient(
         } catch (error: Throwable) {
             file.delete()
             if (error is IOException) {
-                throw FlareException.Network(IOException("Couldn't prepare $fileName for upload: ${error.message}", error))
+                throw FlareException.SourceRead("Couldn't prepare $fileName for upload: ${error.message}", error)
             }
             throw error
         }
@@ -360,6 +360,9 @@ class FlareClient(
             while (true) {
                 try {
                     return sendParts(stream, buffer, session, upload)
+                } catch (lost: CompletionFailed) {
+                    if (startedOver) throw lost.reason
+                    startedOver = true
                 } catch (error: FlareException) {
                     val sessionLost = error is FlareException.NotFound || error is FlareException.Conflict
                     if (!sessionLost || startedOver) throw error
@@ -425,8 +428,17 @@ class FlareClient(
             upload.onChunkedProgress?.invoke(session)
         }
         if (reading(fileName) { stream.read() } != -1) throw FlareException.BadRequest("$fileName changed size while uploading. Try again.")
-        return complete(session)
+        return try {
+            complete(session)
+        } catch (failed: FlareException.Server) {
+            // Flare discards the parts when putting them together fails, and answers every
+            // later completion the same way until the session expires an hour later.
+            throw CompletionFailed(failed)
+        }
     }
+
+    /** Completing a fully sent session failed on Flare's side, so it can't be finished. */
+    private class CompletionFailed(val reason: FlareException) : Exception(reason)
 
     /**
      * Completion is idempotent while the session exists: Flare returns the stored
@@ -461,14 +473,16 @@ class FlareClient(
             parts.size <= (size + partSize - 1) / partSize &&
             parts.withIndex().all { (index, part) -> part.partNumber == index + 1 && part.etag.isNotEmpty() }
 
-    private fun endedEarly(fileName: String) =
-        FlareException.Network(IOException("$fileName is shorter than its reported size. It may have changed while uploading."))
+    private fun endedEarly(fileName: String): FlareException {
+        val message = "$fileName is shorter than its reported size. It may have changed while uploading."
+        return FlareException.SourceRead(message, IOException(message))
+    }
 
     /** Reading the source can fail at any point; that is worth another try, like a dropped connection. */
     private inline fun <T> reading(fileName: String, block: () -> T): T = try {
         block()
     } catch (error: IOException) {
-        throw FlareException.Network(IOException("Couldn't read $fileName: ${error.message}", error))
+        throw FlareException.SourceRead("Couldn't read $fileName: ${error.message}", error)
     }
 
     private suspend fun <T> withPartRetries(block: suspend () -> T): T {
@@ -566,7 +580,7 @@ class FlareClient(
     } catch (error: SecurityException) {
         throw FlareException.SourceUnavailable("Ember lost permission to read ${source.fileName}.", error)
     } catch (error: IOException) {
-        throw FlareException.Network(IOException("Couldn't read ${source.fileName}: ${error.message}", error))
+        throw FlareException.SourceRead("Couldn't read ${source.fileName}: ${error.message}", error)
     }
 
     private fun Response.bodyText(): String = try {

@@ -32,6 +32,7 @@ fun describeError(context: Context, error: Throwable, host: String? = null): Str
         is FlareException.Network -> networkMessage(context, error.cause, place)
         is FlareException.SourceUnavailable ->
             context.getString(if (error.cause is SecurityException) R.string.error_file_access else R.string.error_file_gone)
+        is FlareException.SourceRead -> context.getString(if (error.isOutOfSpace()) R.string.error_no_space else R.string.error_read)
         is FlareException -> error.message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.error_generic)
         // Ember's own problems, so they don't read like network trouble.
         is InsufficientSpaceException, is SQLiteFullException -> context.getString(R.string.error_no_space)
@@ -50,8 +51,8 @@ fun describeError(context: Context, error: Throwable, host: String? = null): Str
 
 private const val TAG = "Ember"
 
-private fun IOException.isOutOfSpace(): Boolean =
-    generateSequence<Throwable>(this) { it.cause }.any { it.message?.contains("ENOSPC") == true || it.message?.contains("No space left") == true }
+private fun Throwable.isOutOfSpace(): Boolean =
+    generateSequence(this) { it.cause }.any { it.message?.contains("ENOSPC") == true || it.message?.contains("No space left") == true }
 
 private fun networkMessage(context: Context, cause: Throwable?, place: String): String {
     val root = generateSequence(cause) { it.cause }.toList()

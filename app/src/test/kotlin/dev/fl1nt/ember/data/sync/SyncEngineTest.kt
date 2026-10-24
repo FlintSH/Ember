@@ -588,6 +588,28 @@ class SyncEngineTest {
         assertThat(db.uploads().get(queued.id)!!.chunkProgress).isNull()
     }
 
+    @Test
+    fun `a stopped upload only continues for the same file with the same settings`() = runBlocking<Unit> {
+        val id = addSource()
+        val item = file("clip.mp4")
+        found += item
+        server.enqueue(error(503, "Try again"))
+        run()
+        val row = db.uploads().observeRecent(10).firstValue().single()
+        // As if a chunked upload had stopped partway.
+        db.uploads().update(row.copy(chunkProgress = "saved"))
+
+        server.enqueue(error(503, "Try again"))
+        run()
+        assertThat(db.uploads().get(row.id)!!.chunkProgress).isEqualTo("saved")
+
+        // Flare fixed the old upload's visibility when it began, so a new setting starts over.
+        db.sources().get(id)!!.let { db.sources().update(it.copy(presetJson = UploadPreset(visibility = Visibility.PRIVATE).encode())) }
+        server.enqueue(error(503, "Try again"))
+        run()
+        assertThat(db.uploads().get(row.id)!!.chunkProgress).isNull()
+    }
+
     private fun json(body: String) = MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body(body).build()
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()

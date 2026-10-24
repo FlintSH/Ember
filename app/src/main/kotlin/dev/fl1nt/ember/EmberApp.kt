@@ -43,6 +43,7 @@ class EmberApp : Application() {
         }
         c.syncEngine.recoverInterrupted()
         c.staging.prune(c.database.uploads().stagedIds().toSet())
+        c.uploadCopies.clearLeftovers()
         if (c.accounts.current() == null) return
         c.sync.reschedule(force = false)
         resumeUploads()

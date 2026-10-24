@@ -292,15 +292,22 @@ class SyncEngine(
                 db.ledger().upsert(LedgerEntity(source.id, item.key, item.fingerprint, state, existing.id, existing.attempts, null, clock()))
                 return null
             }
-            UploadStatus.QUEUED, UploadStatus.RUNNING, UploadStatus.FAILED -> existing.copy(
-                presetJson = preset,
-                fileName = item.name,
-                mimeType = item.mimeType,
-                sizeBytes = item.size,
-                sourceUri = item.uri,
-                // A failed file is back after "Try failed files again" or Retry, so it gets a fresh set of attempts.
-                attempts = if (existing.status == UploadStatus.FAILED) 0 else existing.attempts,
-            )
+            UploadStatus.QUEUED, UploadStatus.RUNNING, UploadStatus.FAILED -> {
+                // Flare keeps a chunked upload's options and the bytes it already has, so only the
+                // same file with the same settings may continue one. Anything else starts fresh.
+                val same = existing.presetJson == preset && existing.sourceFingerprint == item.fingerprint
+                existing.copy(
+                    presetJson = preset,
+                    fileName = item.name,
+                    mimeType = item.mimeType,
+                    sizeBytes = item.size,
+                    sourceUri = item.uri,
+                    sourceFingerprint = item.fingerprint,
+                    chunkProgress = if (same) existing.chunkProgress else null,
+                    // A failed file is back after "Try failed files again" or Retry, so it gets a fresh set of attempts.
+                    attempts = if (existing.status == UploadStatus.FAILED) 0 else existing.attempts,
+                )
+            }
             null -> {
                 val now = clock()
                 UploadEntity(
@@ -315,6 +322,7 @@ class SyncEngine(
                     sourceUri = item.uri,
                     syncSourceId = source.id,
                     syncItemKey = item.key,
+                    sourceFingerprint = item.fingerprint,
                     presetJson = preset,
                     sealedPassword = null,
                     status = UploadStatus.QUEUED,

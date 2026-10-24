@@ -14,9 +14,9 @@ import java.util.zip.Inflater
  * photos apart, ISO media brands tell HEIF stills from sequences, and ZIP entries
  * tell documents from APKs.
  *
- * Text is the exception. file-type also reads short prefixes such as `BM` or
- * `GIF` at the start of ordinary text as images. Ember doesn't repeat those
- * guesses, so text keeps its declared type.
+ * That includes file-type's guesses about text, such as reading `BM` at the
+ * start of a note as a bitmap. Flare rejects any other claim for those bytes, so
+ * Ember makes the same guess and the upload goes through, if oddly labeled.
  */
 internal object FileTypeSniffer {
     fun detect(header: ByteArray): String? {
@@ -80,8 +80,8 @@ internal object FileTypeSniffer {
         /** `detectConfident`. `null` means no signature matched, so the imprecise checks run. */
         fun confident(depth: Int): String? {
             // -- 2-byte signatures --
-            if (ascii(0, "BM")) return if (at(6, 0, 0, 0, 0)) "image/bmp" else UNKNOWN
-            if (ascii(0, "MZ")) return if (portableExecutable()) "application/x-msdownload" else UNKNOWN
+            if (ascii(0, "BM")) return "image/bmp"
+            if (ascii(0, "MZ")) return "application/x-msdownload"
             if (ascii(0, "%!")) return if (ascii(2, "PS-Adobe-") && ascii(14, " EPSF-")) "application/eps" else "application/postscript"
 
             // -- 3-byte signatures --
@@ -90,9 +90,9 @@ internal object FileTypeSniffer {
                 if (depth >= MAX_BOMS) return UNKNOWN
                 return Window(data, start + 3).confident(depth + 1) ?: UNKNOWN
             }
-            if (ascii(0, "GIF")) return if (ascii(3, "87a") || ascii(3, "89a")) "image/gif" else UNKNOWN
+            if (ascii(0, "GIF")) return "image/gif"
             if (at(0, 0x1F, 0x8B, 0x08)) return "application/gzip"
-            if (ascii(0, "BZh")) return if (this[3] in '1'.code..'9'.code) "application/x-bzip2" else UNKNOWN
+            if (ascii(0, "BZh")) return "application/x-bzip2"
             // file-type skips the tag and looks at the audio after it. Flare accepts any
             // audio type for audio, so the frames' exact type doesn't matter.
             if (ascii(0, "ID3")) return "audio/mpeg"
@@ -112,7 +112,7 @@ internal object FileTypeSniffer {
             if (ascii(0, "II")) tiff(bigEndian = false)?.let { return it }
             if (ascii(0, "MM")) tiff(bigEndian = true)?.let { return it }
             if (at(0, 0x1A, 0x45, 0xDF, 0xA3)) return ebml()
-            if (ascii(0, "SQLi")) return if (ascii(0, "SQLite format 3")) "application/x-sqlite3" else UNKNOWN
+            if (ascii(0, "SQLi")) return "application/x-sqlite3"
             if (at(0, 0x7F, 0x45, 0x4C, 0x46)) return "application/x-elf"
 
             // -- 5-byte signatures --
@@ -164,25 +164,18 @@ internal object FileTypeSniffer {
                 if (ascii(6, "VCALENDAR")) return "text/calendar"
             }
             if (ascii(0, "FUJIFILMCCD-RAW")) return "image/x-fujifilm-raf"
-            // MPEG transport streams, plain or with Blu-ray's 4-byte prefix. file-type
-            // checks two sync bytes; Ember wants a third so text starting with G stays text.
-            if (at(0, 0x47) && at(188, 0x47)) return if (at(376, 0x47)) "video/mp2t" else UNKNOWN
-            if (at(4, 0x47) && at(196, 0x47)) return if (at(388, 0x47)) "video/mp2t" else UNKNOWN
+            // MPEG transport streams, plain or with Blu-ray's 4-byte prefix.
+            if (at(0, 0x47) && at(188, 0x47)) return "video/mp2t"
+            if (at(4, 0x47) && at(196, 0x47)) return "video/mp2t"
             if (ascii(257, "ustar") && (this[262] == 0 || this[262] == ' '.code)) return "application/x-tar"
             if (at(0, 0xFF, 0xFE)) {
                 if (utf16(2, "<?xml ", bigEndian = false)) return "application/xml"
-                // file-type then reads this byte order mark as an MPEG audio frame.
-                // Ember keeps the declared type of UTF-16 text instead.
-                return UNKNOWN
+                // Nothing confident: file-type goes on to read this byte order mark
+                // as an MPEG audio frame, in imprecise().
+                return null
             }
             if (ascii(0, "-----BEGIN PGP MESSAGE-----")) return "application/pgp-encrypted"
             return null
-        }
-
-        /** A Windows executable's `PE` header, where the DOS header points. */
-        private fun portableExecutable(): Boolean {
-            val offset = u32(0x3C, bigEndian = false)
-            return offset + 4 <= size && at(offset.toInt(), 0x50, 0x45, 0x00, 0x00)
         }
 
         private fun fontFlavor(): Boolean = at(4, 0x00, 0x01, 0x00, 0x00) || ascii(4, "OTTO")

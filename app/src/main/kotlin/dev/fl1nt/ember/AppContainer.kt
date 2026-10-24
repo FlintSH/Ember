@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import dev.fl1nt.ember.api.Capabilities
 import dev.fl1nt.ember.api.forFlare
 import dev.fl1nt.ember.data.FlareConnection
+import dev.fl1nt.ember.data.UploadCopies
 import dev.fl1nt.ember.data.account.AccountStore
 import dev.fl1nt.ember.data.account.KeystoreSecretCipher
 import dev.fl1nt.ember.data.account.SecretCipher
@@ -28,6 +29,7 @@ import dev.fl1nt.ember.work.Notifier
 import dev.fl1nt.ember.work.WorkScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 private val Context.accountData by preferencesDataStore(name = "account")
@@ -62,7 +64,8 @@ class AppContainer(val application: Application) {
     val notifier = Notifier(app)
     val scheduler = WorkScheduler(app, settings)
     val localNetwork = LocalNetworkAccess(app)
-    val connection = FlareConnection(accounts, http)
+    val uploadCopies = UploadCopies(File(app.cacheDir, "upload-copies"))
+    val connection = FlareConnection(accounts, http, uploadCopies)
     val staging = UploadStaging(app)
     val uploader = Uploader(app, database, staging, cipher, accounts, settings, notifier)
     val uploads = UploadRepository(app, database, staging, cipher, scheduler)
