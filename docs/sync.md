@@ -46,7 +46,7 @@ Each file uploads once. Ember remembers every file it uploaded or Flare permanen
 
 Ember skips:
 
-- Files still being written. Albums use Android's own marker for this. For other folders, Ember waits until a file hasn't changed for 30 seconds.
+- Files still being written. Albums use Android's own marker for this (on Android 9 and older, Ember waits 5 seconds after a change). For other folders, Ember waits until a file hasn't changed for 30 seconds, then checks again about a minute later instead of waiting for the next scheduled check.
 - Hidden files, whose names start with a dot, and partial downloads ending in `.tmp`, `.part`, `.crdownload`, `.download`, or `.partial`.
 - Empty files.
 

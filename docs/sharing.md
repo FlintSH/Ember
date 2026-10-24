@@ -12,7 +12,7 @@ Ember adds Flare to the places you already share from: the share menu, the text 
 
 When the upload finishes, Ember copies the link and shows **Done. Link copied.** with **Share** and **Open**. For several files, it copies all the links, one per line.
 
-You don't have to wait. Close the sheet and the upload continues in the background. A notification shows progress, then the link with **Copy link** and **Share**. Tapping it opens the link.
+You don't have to wait for the upload. Once **Preparing upload** finishes, close the sheet and the upload continues in the background. A notification shows progress, then the link with **Copy link** and **Share**. Tapping it opens the link. While Ember prepares the files, the sheet stays open, because closing it then would cancel the copy.
 
 To skip the review step and upload right away with your defaults, turn off **Settings → Sharing → Review before uploading**.
 

@@ -48,9 +48,13 @@ class SyncPlannerTest {
 
     @Test
     fun `waits for files that are still changing`() {
-        val media = SyncPlanner.plan(SourceType.MEDIA_ALBUM, 0, listOf(item("writing", modified = now - 1_000)), emptyMap(), now)
-        assertThat(media.toUpload).isEmpty()
-        assertThat(media.settling).isEqualTo(1)
+        // Android 10+ hides albums' in-progress files, so a fresh screenshot uploads at once.
+        val modern = SyncPlanner.plan(SourceType.MEDIA_ALBUM, 0, listOf(item("shot", modified = now - 1_000)), emptyMap(), now, SyncPlanner.settleMillis(SourceType.MEDIA_ALBUM, sdk = 29))
+        assertThat(modern.toUpload.map { it.key }).containsExactly("shot")
+
+        val legacy = SyncPlanner.plan(SourceType.MEDIA_ALBUM, 0, listOf(item("writing", modified = now - 1_000)), emptyMap(), now, SyncPlanner.settleMillis(SourceType.MEDIA_ALBUM, sdk = 28))
+        assertThat(legacy.toUpload).isEmpty()
+        assertThat(legacy.settling).isEqualTo(1)
 
         // Folders have no in-progress flag, so they wait longer.
         val folder = SyncPlanner.plan(SourceType.FOLDER, 0, listOf(item("doc", modified = now - 10_000)), emptyMap(), now)

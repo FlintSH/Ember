@@ -207,8 +207,9 @@ jobs:
             url: http://localhost:3000
           # Android 17 connects to a local network address, which exercises its
           # local network permission prompt.
+          # Android 17's SDK packages carry a minor version, such as platforms;android-37.0.
           - android: '17'
-            api: 37
+            api: '37.0'
             image: '37.0'
             url: http://10.0.2.2:3000
     services:

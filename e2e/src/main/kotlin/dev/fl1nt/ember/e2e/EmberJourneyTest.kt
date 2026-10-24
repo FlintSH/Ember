@@ -62,6 +62,13 @@ class EmberJourneyTest {
     private fun waitFor(selector: BySelector, timeout: Long = 20_000): UiObject2 =
         device.wait(Until.findObject(selector), timeout) ?: throw AssertionError("Timed out waiting for $selector\n${hierarchy()}")
 
+    /**
+     * The editable node of a labeled Ember text field. The label is a child of the
+     * EditText, and only the EditText accepts text.
+     */
+    private fun field(label: String): UiObject2 =
+        waitFor(By.clazz("android.widget.EditText").hasDescendant(By.desc(label)))
+
     private fun hierarchy(): String = java.io.ByteArrayOutputStream().also { device.dumpWindowHierarchy(it) }.toString(Charsets.UTF_8.name())
 
     private fun waitUntil(timeout: Long = 90_000, description: String, condition: () -> Boolean) {
@@ -81,6 +88,14 @@ class EmberJourneyTest {
 
     private fun shareActivity() = ComponentName(pkg, "dev.fl1nt.ember.ui.share.ShareActivity")
 
+    /** Closes the soft keyboard if it's showing, so buttons below text fields are visible. */
+    private fun hideKeyboard() {
+        if (Device.shell("dumpsys input_method").contains("mInputShown=true")) {
+            device.pressBack()
+            device.waitForIdle()
+        }
+    }
+
     private fun clickIfPresent(selector: BySelector, timeout: Long = 4_000): Boolean {
         val target = device.wait(Until.findObject(selector), timeout) ?: return false
         target.click()
@@ -94,10 +109,11 @@ class EmberJourneyTest {
         shots.take("welcome")
         device.findObject(By.text("Connect to Flare")).click()
 
-        waitFor(By.desc("Flare address")).text = Args.flareUrl
-        waitFor(By.desc("API token")).text = Args.token
+        field("Flare address").text = Args.flareUrl
+        field("API token").text = Args.token
+        hideKeyboard()
         shots.take("connect")
-        device.findObject(By.text("Connect")).click()
+        waitFor(By.text("Connect")).click()
 
         // Android 17 asks before Ember can reach a server on the local network.
         if (clickIfPresent(By.text("Continue"))) {
@@ -146,9 +162,10 @@ class EmberJourneyTest {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
         waitFor(By.text("Create paste"))
-        waitFor(By.desc("File name")).text = name
+        field("File name").text = name
+        hideKeyboard()
         shots.take("paste-review")
-        device.findObject(By.text("Create paste")).click()
+        waitFor(By.text("Create paste")).click()
 
         waitFor(By.text("Done. Link copied."), timeout = 60_000)
         shots.take("paste-done")

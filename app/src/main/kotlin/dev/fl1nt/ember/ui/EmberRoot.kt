@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -31,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -214,45 +216,48 @@ private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -
             }
         },
     ) { padding ->
-        NavHost(navController, startDestination = HomeDestination, modifier = Modifier.padding(bottom = padding.calculateBottomPadding())) {
-            composable<HomeDestination> {
-                HomeRoute(
-                    onPaste = { navController.navigate(PasteDestination()) },
-                    onShorten = { navController.navigate(ShortenDestination()) },
-                    onOpenSync = { navController.navigateTab(SyncDestination) },
-                    onAddSource = { navController.navigate(AddSourceDestination) },
-                    onSeeAll = { navController.navigateTab(LibraryDestination(LibraryTab.RECENT.name)) },
-                    onSnackbar = showMessage,
-                    openUploadPicker = openUploadPicker,
-                    onUploadPickerHandled = { openUploadPicker = false },
-                )
-            }
-            composable<LibraryDestination> { entry ->
-                val tab = entry.toRoute<LibraryDestination>().tab?.let { name -> LibraryTab.entries.firstOrNull { it.name == name } }
-                LibraryRoute(initialTab = tab, onShorten = { navController.navigate(ShortenDestination()) }, onSnackbar = showMessage)
-            }
-            composable<SyncDestination> {
-                SyncRoute(
-                    onAdd = { navController.navigate(AddSourceDestination) },
-                    onOpen = { navController.navigate(SourceDestination(it)) },
-                    onOpenSettings = { navController.navigateTab(SettingsDestination) },
-                )
-            }
-            composable<SettingsDestination> { SettingsRoute() }
-            composable<PasteDestination> { entry -> PasteRoute(onBack = { navController.popBackStack() }, initialText = entry.toRoute<PasteDestination>().text) }
-            composable<ShortenDestination> { entry -> ShortenRoute(onBack = { navController.popBackStack() }, initialUrl = entry.toRoute<ShortenDestination>().url) }
-            composable<AddSourceDestination> {
-                AddSourceRoute(
-                    onBack = { navController.popBackStack() },
-                    onSaved = { id ->
-                        navController.popBackStack()
-                        navController.navigate(SourceDestination(id))
-                        showMessage(container.application.getString(R.string.sync_source_added))
-                    },
-                )
-            }
-            composable<SourceDestination> { entry ->
-                SourceDetailRoute(entry.toRoute<SourceDestination>().id, onBack = { navController.popBackStack() }, onSelectUpload = { selectedUpload = it })
+        // On tablets and unfolded phones, keep content at a comfortable reading width.
+        Box(Modifier.fillMaxSize().padding(bottom = padding.calculateBottomPadding()), contentAlignment = Alignment.TopCenter) {
+            NavHost(navController, startDestination = HomeDestination, modifier = Modifier.widthIn(max = MAX_CONTENT_WIDTH).fillMaxSize()) {
+                composable<HomeDestination> {
+                    HomeRoute(
+                        onPaste = { navController.navigate(PasteDestination()) },
+                        onShorten = { navController.navigate(ShortenDestination()) },
+                        onOpenSync = { navController.navigateTab(SyncDestination) },
+                        onAddSource = { navController.navigate(AddSourceDestination) },
+                        onSeeAll = { navController.navigateTab(LibraryDestination(LibraryTab.RECENT.name)) },
+                        onSnackbar = showMessage,
+                        openUploadPicker = openUploadPicker,
+                        onUploadPickerHandled = { openUploadPicker = false },
+                    )
+                }
+                composable<LibraryDestination> { entry ->
+                    val tab = entry.toRoute<LibraryDestination>().tab?.let { name -> LibraryTab.entries.firstOrNull { it.name == name } }
+                    LibraryRoute(initialTab = tab, onShorten = { navController.navigate(ShortenDestination()) }, onSnackbar = showMessage)
+                }
+                composable<SyncDestination> {
+                    SyncRoute(
+                        onAdd = { navController.navigate(AddSourceDestination) },
+                        onOpen = { navController.navigate(SourceDestination(it)) },
+                        onOpenSettings = { navController.navigateTab(SettingsDestination) },
+                    )
+                }
+                composable<SettingsDestination> { SettingsRoute() }
+                composable<PasteDestination> { entry -> PasteRoute(onBack = { navController.popBackStack() }, initialText = entry.toRoute<PasteDestination>().text) }
+                composable<ShortenDestination> { entry -> ShortenRoute(onBack = { navController.popBackStack() }, initialUrl = entry.toRoute<ShortenDestination>().url) }
+                composable<AddSourceDestination> {
+                    AddSourceRoute(
+                        onBack = { navController.popBackStack() },
+                        onSaved = { id ->
+                            navController.popBackStack()
+                            navController.navigate(SourceDestination(id))
+                            showMessage(container.application.getString(R.string.sync_source_added))
+                        },
+                    )
+                }
+                composable<SourceDestination> { entry ->
+                    SourceDetailRoute(entry.toRoute<SourceDestination>().id, onBack = { navController.popBackStack() }, onSelectUpload = { selectedUpload = it })
+                }
             }
         }
     }
@@ -267,6 +272,8 @@ private fun MainFlow(destination: StateFlow<String?>, onDestinationHandled: () -
         )
     }
 }
+
+private val MAX_CONTENT_WIDTH = 840.dp
 
 private fun NavHostController.navigateTab(route: Any) {
     navigate(route) {

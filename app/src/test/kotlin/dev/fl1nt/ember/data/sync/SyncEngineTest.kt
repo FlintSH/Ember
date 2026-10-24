@@ -168,6 +168,15 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `files still being written are counted so a follow-up run picks them up`() = runBlocking {
+        addSource()
+        val fresh = file("recording.m4a").let { it.copy(addedAtMillis = System.currentTimeMillis(), modifiedAtMillis = System.currentTimeMillis()) }
+        found += fresh
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 0, settling = 1))
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
     fun `a rejected token stops the run without marking files`() = runBlocking {
         val id = addSource()
         found += listOf(file("one.png"), file("two.png"))

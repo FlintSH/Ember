@@ -26,11 +26,21 @@ data class SyncPlan(
 
 /** The rules for which files a sync uploads. Pure, so it's easy to test. */
 object SyncPlanner {
-    /** A MediaStore entry is complete once published; this covers devices before IS_PENDING. */
-    const val MEDIA_SETTLE_MILLIS = 5_000L
+    /**
+     * Android 10 and later hide MediaStore entries that are still being written, so
+     * albums only need a settle window on older versions.
+     */
+    const val LEGACY_MEDIA_SETTLE_MILLIS = 5_000L
 
     /** Folders have no "still writing" flag, so wait until a file has stopped changing. */
     const val FOLDER_SETTLE_MILLIS = 30_000L
+
+    /** How long a file must stay unchanged before it uploads. */
+    fun settleMillis(type: SourceType, sdk: Int): Long = when {
+        type == SourceType.FOLDER -> FOLDER_SETTLE_MILLIS
+        sdk >= 29 -> 0
+        else -> LEGACY_MEDIA_SETTLE_MILLIS
+    }
 
     fun plan(
         type: SourceType,
@@ -38,8 +48,8 @@ object SyncPlanner {
         items: List<SourceItem>,
         ledger: Map<String, LedgerEntity>,
         now: Long,
+        settleMillis: Long = settleMillis(type, sdk = 29),
     ): SyncPlan {
-        val settleMillis = if (type == SourceType.MEDIA_ALBUM) MEDIA_SETTLE_MILLIS else FOLDER_SETTLE_MILLIS
         var settling = 0
         val toUpload = items.asSequence()
             .filter { isWanted(it) }

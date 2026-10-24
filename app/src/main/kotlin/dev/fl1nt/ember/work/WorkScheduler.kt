@@ -100,9 +100,10 @@ class WorkScheduler(private val context: Context, private val settings: Settings
         workManager.enqueueUniqueWork(SYNC_NOW, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
-    /** Continues a large sync in a new job window. */
-    fun continueSync(prefs: SyncPreferences) {
+    /** Continues a large sync in a new job window, or rechecks files that were still being written. */
+    fun continueSync(prefs: SyncPreferences, delay: Duration = Duration.ZERO) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setInitialDelay(delay)
             .setConstraints(syncConstraints(prefs))
             .setInputData(workDataOf(SyncWorker.KEY_REASON to SyncWorker.REASON_CONTINUE))
             .build()

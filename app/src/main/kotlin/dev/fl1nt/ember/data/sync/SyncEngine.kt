@@ -27,7 +27,8 @@ import java.util.UUID
 data class SyncProgress(val done: Int, val total: Int, val current: String?)
 
 sealed interface SyncRun {
-    data class Completed(val uploaded: Int, val failed: Int) : SyncRun
+    /** [settling] files were still being written; a follow-up run picks them up. */
+    data class Completed(val uploaded: Int, val failed: Int, val settling: Int = 0) : SyncRun
 
     /** Ran out of time in this job window. The rest continues in the next one. */
     data class Paused(val uploaded: Int, val remaining: Int) : SyncRun
@@ -61,6 +62,7 @@ class SyncEngine(
     private val localNetworkBlocked: suspend (dev.fl1nt.ember.api.FlareOrigin) -> Boolean,
     private val mediaAccess: () -> MediaAccess,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val sdk: Int = android.os.Build.VERSION.SDK_INT,
 ) {
     private val mutex = Mutex()
     private val _progress = MutableStateFlow<SyncProgress?>(null)
@@ -96,6 +98,7 @@ class SyncEngine(
         val sources = db.sources().all().filter { it.enabled && (!mediaOnly || it.type == SourceType.MEDIA_ALBUM) }
         val now = clock()
         val work = ArrayList<Pair<SyncSourceEntity, SourceItem>>()
+        var settling = 0
         for (source in sources) {
             if (source.type == SourceType.MEDIA_ALBUM && mediaAccess() == MediaAccess.NONE) {
                 db.sources().recordScan(source.id, now, 0, MEDIA_ACCESS_ERROR)
@@ -110,7 +113,8 @@ class SyncEngine(
                 continue
             }
             val ledger = db.ledger().forSource(source.id).associateBy { it.itemKey }
-            val plan = SyncPlanner.plan(source.type, source.sinceMillis, items, ledger, now)
+            val plan = SyncPlanner.plan(source.type, source.sinceMillis, items, ledger, now, SyncPlanner.settleMillis(source.type, sdk))
+            settling += plan.settling
             db.sources().recordScan(source.id, now, plan.toUpload.size + plan.settling, null)
             plan.toUpload.forEach { work += source to it }
         }
@@ -150,7 +154,7 @@ class SyncEngine(
             db.sources().recordScan(source.id, clock(), (work.size - index - 1).coerceAtLeast(0), null)
         }
         if (uploaded + failed > 0 && sources.any { !it.notifyEach }) notifier.syncSummary(uploaded, failed)
-        return SyncRun.Completed(uploaded, failed)
+        return SyncRun.Completed(uploaded, failed, settling)
     }
 
     /** Reuses the history row for a file that failed temporarily before. */

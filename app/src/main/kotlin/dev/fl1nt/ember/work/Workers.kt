@@ -99,7 +99,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
         }
         return when (result) {
-            is SyncRun.Completed, SyncRun.Disabled, SyncRun.NotConnected -> Result.success()
+            is SyncRun.Completed -> {
+                // Files still being written get another look shortly, not at the next scheduled check.
+                if (result.settling > 0) c.scheduler.continueSync(prefs, delay = SETTLE_RECHECK)
+                Result.success()
+            }
+            SyncRun.Disabled, SyncRun.NotConnected -> Result.success()
             is SyncRun.Paused -> {
                 c.scheduler.continueSync(prefs)
                 Result.success()
@@ -132,5 +137,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         /** Foreground work may run longer, but still yields so the queue stays fair. */
         private const val FOREGROUND_BUDGET_MILLIS = 30 * 60 * 1000L
+
+        private val SETTLE_RECHECK: java.time.Duration = java.time.Duration.ofMinutes(1)
     }
 }

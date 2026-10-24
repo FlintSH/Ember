@@ -1,5 +1,6 @@
 package dev.fl1nt.ember.ui.share
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -84,12 +85,17 @@ data class ShareCallbacks(
 /** The bottom sheet that opens over other apps. */
 @Composable
 fun ShareScreen(state: ShareState, callbacks: ShareCallbacks) {
+    // Closing while Ember copies shared files would cancel the copy and lose the share.
+    val dismissible = state.phase != SharePhase.PREPARING
+    BackHandler(enabled = !dismissible) {}
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = callbacks.onDismiss),
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    if (dismissible) callbacks.onDismiss()
+                },
         )
         Surface(
             modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 640.dp).fillMaxWidth(),
@@ -106,7 +112,7 @@ fun ShareScreen(state: ShareState, callbacks: ShareCallbacks) {
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Box(Modifier.align(Alignment.CenterHorizontally).width(36.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.outline))
-                Header(state, callbacks.onDismiss)
+                Header(state, if (dismissible) callbacks.onDismiss else null)
                 when (state.phase) {
                     SharePhase.LOADING -> Loading(stringResource(R.string.share_loading))
                     SharePhase.NOT_CONNECTED -> {
@@ -122,7 +128,10 @@ fun ShareScreen(state: ShareState, callbacks: ShareCallbacks) {
                     }
                     SharePhase.REVIEW_FILES -> ReviewFiles(state, callbacks)
                     SharePhase.REVIEW_TEXT -> ReviewText(state, callbacks)
-                    SharePhase.PREPARING -> Loading(stringResource(R.string.share_preparing))
+                    SharePhase.PREPARING -> {
+                        Loading(stringResource(R.string.share_preparing))
+                        Text(stringResource(R.string.share_preparing_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     SharePhase.UPLOADING -> Progress(state, callbacks)
                     SharePhase.DONE -> Done(state, callbacks)
                     SharePhase.FAILED -> {
@@ -139,7 +148,7 @@ fun ShareScreen(state: ShareState, callbacks: ShareCallbacks) {
 }
 
 @Composable
-private fun Header(state: ShareState, onDismiss: () -> Unit) {
+private fun Header(state: ShareState, onDismiss: (() -> Unit)?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         EmberMark(size = 30.dp)
         Column(Modifier.weight(1f)) {
@@ -157,7 +166,7 @@ private fun Header(state: ShareState, onDismiss: () -> Unit) {
                 Text(it.displayName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        IconAction(Lucide.X, stringResource(R.string.action_close), onDismiss)
+        if (onDismiss != null) IconAction(Lucide.X, stringResource(R.string.action_close), onDismiss)
     }
 }
 
