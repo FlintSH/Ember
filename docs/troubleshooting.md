@@ -24,7 +24,7 @@
 
 **Not allowed.** Your Flare roles don't allow this, for example creating pastes (`pastes.create`), uploading into folders, or uploading files that expire. If your token is bound to an upload profile, Flare also rejects uploads that choose a different visibility, expiration, or folder than the profile. Set those options to **Flare default** in Ember.
 
-**Rejected by Flare.** Flare refused the request and Ember shows its reason, such as a missing folder. A wrong file type usually means the sending app reported the type incorrectly; send the file again from a file manager.
+**Rejected by Flare.** Flare refused the request and Ember shows its reason, such as a missing folder. A wrong file type usually means the sending app reported the type incorrectly; send the file again from a file manager. Flare also checks pastes this way, so text that starts like another kind of file, such as `<?xml` or `%PDF`, is rejected. Flare's own paste form has the same limit; upload it as a file instead.
 
 **Retrying soon** that never finishes. Ember waits for a connection and retries up to 8 times with growing delays. Check that you're online and that Flare is up. A token problem shows as **Paused** instead, with **Reconnect** on Home.
 
