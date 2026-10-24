@@ -63,10 +63,15 @@ class EmberJourneyTest {
                 }
             }
             Device.grant(pkg, *permissions.toTypedArray())
-            // Fail fast, with the reason, when the emulator can't reach the test server.
-            runCatching { api.health() }.onFailure { error ->
-                throw AssertionError("This device can't reach Flare at ${Args.flareUrl}: $error", error)
+            // The emulator's network can take a moment after boot. Then fail with the reason.
+            var lastError: Throwable? = null
+            val deadline = SystemClock.elapsedRealtime() + 60_000
+            while (SystemClock.elapsedRealtime() < deadline) {
+                lastError = runCatching { api.health() }.exceptionOrNull()
+                if (lastError == null) break
+                SystemClock.sleep(2_000)
             }
+            lastError?.let { throw AssertionError("This device can't reach Flare at ${Args.flareUrl}: $it", it) }
         }
     }
 
