@@ -160,17 +160,19 @@ fun LibraryScreen(
             }
         }
         when (state.tab) {
-            LibraryTab.RECENT -> recentItems(state.recent, onSelectUpload, onClearFinished)
+            LibraryTab.RECENT -> recentItems(state.recent, state.loaded, onSelectUpload, onClearFinished)
             LibraryTab.FILES -> fileItems(state, onSearch, onRefreshFiles, onSelectFile)
             LibraryTab.LINKS -> linkItems(state, onShorten, onRefreshLinks, onSelectLink)
         }
     }
 }
 
-private fun LazyListScope.recentItems(recent: List<UploadEntity>, onSelect: (UploadEntity) -> Unit, onClear: () -> Unit) {
+private fun LazyListScope.recentItems(recent: List<UploadEntity>, loaded: Boolean, onSelect: (UploadEntity) -> Unit, onClear: () -> Unit) {
     if (recent.isEmpty()) {
-        item {
-            EmptyState(Lucide.History, stringResource(R.string.library_recent_empty_title), stringResource(R.string.library_recent_empty_body))
+        if (loaded) {
+            item {
+                EmptyState(Lucide.History, stringResource(R.string.library_recent_empty_title), stringResource(R.string.library_recent_empty_body))
+            }
         }
         return
     }
@@ -243,7 +245,7 @@ private fun LazyListScope.linkItems(state: LibraryState, onShorten: () -> Unit, 
         }
     }
     if (state.links.isEmpty()) {
-        item { EmptyState(Lucide.Link, stringResource(R.string.links_empty_title), stringResource(R.string.links_empty_body)) }
+        if (state.loaded) item { EmptyState(Lucide.Link, stringResource(R.string.links_empty_title), stringResource(R.string.links_empty_body)) }
         return
     }
     items(state.links, key = { it.id }) { link -> LinkRow(link, onClick = { onSelect(link) }) }

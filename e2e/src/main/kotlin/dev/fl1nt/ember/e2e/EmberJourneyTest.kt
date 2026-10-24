@@ -256,7 +256,7 @@ class EmberJourneyTest {
     fun step6_browsesTheLibrary() {
         device.pressBack()
         waitFor(By.text("Library")).click()
-        waitFor(By.text("Recent"))
+        waitFor(By.text("e2e-share-$run.png"))
         shots.take("library-recent")
         device.findObject(By.text("Files")).click()
         waitFor(By.text("e2e-share-$run.png"), timeout = 20_000)

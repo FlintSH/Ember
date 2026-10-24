@@ -27,6 +27,8 @@ data class HomeState(
     val syncRunning: Boolean = false,
     val syncProgress: SyncProgress? = null,
     val needsLocalNetwork: Boolean = false,
+    /** False until uploads and folders have loaded, so "nothing uploaded yet" doesn't flash first. */
+    val loaded: Boolean = false,
 ) {
     val enabledSources: Int get() = sources.count { it.enabled }
     val pending: Int get() = sources.filter { it.enabled }.sumOf { it.pendingCount }
@@ -65,6 +67,7 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
             syncRunning = sync.running || sync.progress != null,
             syncProgress = sync.progress,
             needsLocalNetwork = blocked,
+            loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 

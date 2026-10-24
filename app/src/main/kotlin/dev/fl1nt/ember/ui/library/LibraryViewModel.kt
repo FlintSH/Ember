@@ -44,6 +44,8 @@ data class LibraryState(
     val files: RemoteFiles = RemoteFiles(),
     val links: List<ShortLinkEntity> = emptyList(),
     val linksState: LinksState = LinksState(),
+    /** False until the lists have loaded, so "nothing here" doesn't flash first. */
+    val loaded: Boolean = false,
 )
 
 class LibraryViewModel(private val container: AppContainer) : ViewModel() {
@@ -61,7 +63,7 @@ class LibraryViewModel(private val container: AppContainer) : ViewModel() {
         container.links.observe(),
         linksState,
     ) { (tab, account), recent, files, links, linksState ->
-        LibraryState(tab, account, recent, files, links, linksState)
+        LibraryState(tab, account, recent, files, links, linksState, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryState())
 
     fun select(next: LibraryTab) {

@@ -234,7 +234,7 @@ fun HomeScreen(
                 }
                 FlareCard(contentPadding = PaddingValues(vertical = 6.dp)) {
                     if (state.recent.isEmpty()) {
-                        EmptyState(Lucide.CloudUpload, stringResource(R.string.home_empty_title), stringResource(R.string.home_empty_body))
+                        if (state.loaded) EmptyState(Lucide.CloudUpload, stringResource(R.string.home_empty_title), stringResource(R.string.home_empty_body))
                     } else {
                         state.recent.forEach { upload -> UploadRow(upload, onClick = { onSelect(upload) }, onCopy = { onCopy(upload) }) }
                     }
