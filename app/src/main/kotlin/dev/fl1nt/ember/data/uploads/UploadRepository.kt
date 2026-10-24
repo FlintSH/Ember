@@ -201,7 +201,7 @@ class UploadRepository(
     suspend fun cancel(id: String) {
         val upload = db.uploads().get(id) ?: return
         if (upload.status != UploadStatus.QUEUED) return
-        db.uploads().update(upload.copy(status = UploadStatus.CANCELLED, stagedPath = null, sealedPassword = null, updatedAt = clock()))
+        db.uploads().update(upload.copy(status = UploadStatus.CANCELLED, stagedPath = null, sealedPassword = null, chunkProgress = null, updatedAt = clock()))
         staging.delete(upload.stagedPath)
         val sourceId = upload.syncSourceId
         val itemKey = upload.syncItemKey

@@ -30,7 +30,7 @@
 
 **A link points to the wrong address.** Flare builds links from its `NEXTAUTH_URL` setting. Ask your administrator to set it to the public address.
 
-**Duplicates.** If a connection drops after Flare saved a file but before Ember heard back, retrying can create a second copy. Ember avoids this for large files, which use Flare's chunked uploads.
+**Duplicates.** If a connection drops after Flare saved a file but before Ember heard back, retrying can create a second copy. Files of 8 MiB or more use Flare's chunked uploads, which Ember can safely finish again, unless the upload sat unfinished for over an hour and Flare discarded it.
 
 ## Sync isn't uploading
 

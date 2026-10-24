@@ -14,6 +14,8 @@ import dev.fl1nt.ember.FakeCipher
 import dev.fl1nt.ember.PNG_BYTES
 import dev.fl1nt.ember.api.Access
 import dev.fl1nt.ember.api.Capabilities
+import dev.fl1nt.ember.api.ChunkedProgress
+import dev.fl1nt.ember.api.FlareClient
 import dev.fl1nt.ember.api.FlareCredential
 import dev.fl1nt.ember.api.FlareOrigin
 import dev.fl1nt.ember.api.Visibility
@@ -38,8 +40,11 @@ import dev.fl1nt.ember.testDataStore
 import dev.fl1nt.ember.work.Attention
 import dev.fl1nt.ember.work.Notifier
 import dev.fl1nt.ember.work.WorkScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -53,6 +58,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowStatFs
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /** Runs the sync engine and uploader end to end against a fake Flare server. */
 @RunWith(RobolectricTestRunner::class)
@@ -544,6 +550,45 @@ class SyncEngineTest {
         assertThat(waiting.status).isEqualTo(UploadStatus.QUEUED)
         assertThat(waiting.attempts).isEqualTo(0)
     }
+
+    @Test
+    fun `a large upload that was stopped continues from the parts Flare already has`() = runBlocking<Unit> {
+        val size = 17 * 1024 * 1024
+        val video = File(temp.root, "video.mp4").apply { writeBytes(ByteArray(size) { (it % 251).toByte() }) }
+        val batch = repository.enqueueFiles(listOf(Uri.fromFile(video)), UploadOrigin.SHARE, UploadPreset())
+        val queued = db.uploads().observeBatch(batch).firstValue().single()
+        val client = connection.client()!!
+        server.enqueue(json("""{"success":true,"data":{"uploadId":"session1","fileKey":"k"}}"""))
+        server.enqueue(json("""{"success":true,"data":{"etag":"e1"}}"""))
+
+        // Android ends background work after a while; here it happens during the second part.
+        lateinit var job: Job
+        job = launch(Dispatchers.IO) {
+            uploader.upload(queued, client) { sent, _ -> if (sent > FlareClient.DEFAULT_PART_SIZE) job.cancel() }
+        }
+        job.join()
+        val stopped = db.uploads().get(queued.id)!!
+        assertThat(stopped.status).isEqualTo(UploadStatus.QUEUED)
+        assertThat(stopped.attempts).isEqualTo(0)
+        assertThat(ChunkedProgress.fromJson(stopped.chunkProgress!!)!!.parts.map { it.partNumber }).containsExactly(1)
+
+        server.enqueue(json("""{"success":true,"data":{"etag":"e2"}}"""))
+        server.enqueue(json("""{"success":true,"data":{"etag":"e3"}}"""))
+        server.enqueue(json("""{"url":"https://files.example.com/alex/video.mp4","pageUrl":"https://files.example.com/alex/video.mp4","rawUrl":"https://files.example.com/api/files/u/video.mp4","name":"video.mp4","size":$size,"type":"video/mp4"}"""))
+        assertThat(uploader.upload(stopped, client)).isInstanceOf(Uploader.Outcome.Uploaded::class.java)
+
+        val paths = generateSequence { server.takeRequest(1, TimeUnit.SECONDS) }.map { "${it.method} ${it.url.encodedPath}" }.toList()
+        // The second try sends only the missing parts: no new session, and part 1 isn't repeated.
+        assertThat(paths.takeLast(3)).containsExactly(
+            "PUT /api/files/chunks/session1/part/2",
+            "PUT /api/files/chunks/session1/part/3",
+            "POST /api/files/chunks/session1/complete",
+        ).inOrder()
+        assertThat(paths.count { it == "POST /api/files/chunks" }).isEqualTo(1)
+        assertThat(db.uploads().get(queued.id)!!.chunkProgress).isNull()
+    }
+
+    private fun json(body: String) = MockResponse.Builder().code(200).addHeader("Content-Type", "application/json").body(body).build()
 
     private suspend fun <T> Flow<T>.firstValue(): T = first()
 }

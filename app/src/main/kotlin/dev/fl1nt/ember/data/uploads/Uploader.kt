@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import dev.fl1nt.ember.R
+import dev.fl1nt.ember.api.ChunkedProgress
 import dev.fl1nt.ember.api.FileUploadSource
 import dev.fl1nt.ember.api.FlareClient
 import dev.fl1nt.ember.api.UploadKind
@@ -115,19 +116,26 @@ class Uploader(
                             sent.value = bytes
                             onProgress(bytes, total)
                         },
+                        // Large files upload in parts. Remembering the finished ones lets a
+                        // retry, or the next sync window, continue where this one stopped.
+                        resume = running.chunkProgress?.let(ChunkedProgress::fromJson),
+                        onChunkedProgress = { state -> dao.updateChunkProgress(running.id, state.toJson(), clock()) },
                     )
                 } finally {
                     progressWriter.cancel()
                 }
             }
         } catch (cancelled: CancellationException) {
-            // Being stopped isn't a failed attempt.
+            // Being stopped isn't a failed attempt. Keep the parts Flare already has.
             withContext(NonCancellable) {
-                dao.update(running.copy(status = UploadStatus.QUEUED, attempts = entity.attempts, bytesSent = 0, updatedAt = clock()))
+                val saved = dao.get(running.id)?.chunkProgress
+                dao.update(running.copy(status = UploadStatus.QUEUED, attempts = entity.attempts, bytesSent = 0, chunkProgress = saved, updatedAt = clock()))
             }
             throw cancelled
         } catch (error: Exception) {
-            return fail(running, Failure.of(error, describeError(context, error, client.origin.displayName)))
+            // The saved parts survive a temporary failure; fail() drops them otherwise.
+            val saved = dao.get(running.id)?.chunkProgress
+            return fail(running.copy(chunkProgress = saved), Failure.of(error, describeError(context, error, client.origin.displayName)))
         }
         // Flare has the file. Finish recording that even if Ember is being stopped,
         // or the next run would upload it again.
@@ -147,6 +155,7 @@ class Uploader(
             rawUrl = result.rawUrl,
             sealedPassword = null,
             stagedPath = null,
+            chunkProgress = null,
             completedAt = clock(),
             updatedAt = clock(),
         )
@@ -179,6 +188,8 @@ class Uploader(
         val updated = upload.copy(
             status = if (retryable) UploadStatus.QUEUED else UploadStatus.FAILED,
             attempts = attempts,
+            // A failure that won't be retried by itself starts fresh if someone tries again.
+            chunkProgress = if (retryable) upload.chunkProgress else null,
             bytesSent = 0,
             failureKind = kind,
             failureMessage = failure.message,

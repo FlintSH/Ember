@@ -71,6 +71,11 @@ data class UploadEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val completedAt: Long? = null,
+    /**
+     * Where a chunked upload got to, as [dev.fl1nt.ember.api.ChunkedProgress] JSON, so
+     * an interrupted large upload continues instead of starting over.
+     */
+    val chunkProgress: String? = null,
 )
 
 enum class SourceType {

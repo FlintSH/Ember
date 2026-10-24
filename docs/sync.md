@@ -36,7 +36,7 @@ Change these later by tapping the folder in **Sync**.
 
 By default Ember only syncs over Wi-Fi. You can allow mobile data, and choose **Only while charging**. **Sync now** doesn't wait for a charger, but still respects Wi-Fi only. Scheduled checks also wait while your battery is low.
 
-Android limits how long background work may run, so Ember works through a large backlog in stretches of a few minutes and continues on its own. While Ember is open, a sync can run longer with a progress notification.
+Android limits how long background work may run, so Ember works through a large backlog in stretches of a few minutes and continues on its own. A long video that doesn't finish in one stretch continues from the parts already uploaded. While Ember is open, a sync can run longer with a progress notification.
 
 Turn everything off with the **Automatic sync** switch, or pause one folder with its own switch.
 

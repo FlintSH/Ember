@@ -4,10 +4,10 @@ Ember has five layers of tests. CI runs all of them on every pull request and pu
 
 | Layer | Command | What it covers |
 | --- | --- | --- |
-| Client unit tests | `./gradlew :api:test` | URL parsing, credentials, MIME detection, options, rate pacing, and every client call against MockWebServer, including chunked uploads, part retries, and error mapping. |
-| App unit and Robolectric tests | `./gradlew :app:testDebugUnitTest` | The sync planner and engine against a fake Flare with an in-memory database, the share intent parser, encrypted account storage, settings, presets, and helpers. |
+| Client unit tests | `./gradlew :api:test` | URL parsing, credentials, MIME detection against samples of what Flare's detector reports, options, rate pacing, and every client call against MockWebServer, including chunked uploads that resume, part retries, size limits, and error mapping. |
+| App unit and Robolectric tests | `./gradlew :app:testDebugUnitTest` | The sync planner and engine against a fake Flare with an in-memory database, including failures, retries, cancelling, and uploads that resume after being stopped; the share intent parser, encrypted account storage, settings, presets, and helpers. |
 | Screenshot tests | `./gradlew :app:verifyRoborazziDebug` | Every screen rendered with demonstration data, plus light-theme versions of key screens, compared with the committed images in `app/src/test/screenshots`. |
-| Live Flare tests | `./gradlew :api:integrationTest` | Ember's client against a real Flare server: capability checks per token type, private and expiring uploads, folders, pastes, chunked uploads, short links, and scope enforcement. |
+| Live Flare tests | `./gradlew :api:integrationTest` | Ember's client against a real Flare server: capability checks per token type, private and expiring uploads, folders, pastes, chunked uploads past Next.js's 10 MiB request limit, resuming an abandoned upload, non-ASCII file names, phone file types, short links, and scope enforcement. |
 | End-to-end tests | `scripts/ci/run-e2e.sh` | The installed release APK on Android 16 and 17 emulators against a real Flare server: connecting, sharing a photo, pasting selected text, shortening a link, syncing a new album, and browsing the library. Results are checked through Flare's API. |
 
 Run the everyday set before opening a pull request:

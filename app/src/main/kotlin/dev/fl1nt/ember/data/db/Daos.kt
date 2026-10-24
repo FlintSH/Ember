@@ -78,6 +78,9 @@ interface UploadDao {
     @Query("UPDATE uploads SET bytesSent = :bytes, updatedAt = :now WHERE id = :id")
     suspend fun updateProgress(id: String, bytes: Long, now: Long)
 
+    @Query("UPDATE uploads SET chunkProgress = :progress, updatedAt = :now WHERE id = :id")
+    suspend fun updateChunkProgress(id: String, progress: String?, now: Long)
+
     @Query("SELECT * FROM uploads WHERE status IN ('DONE', 'FAILED', 'CANCELLED') AND stagedPath IS NOT NULL")
     suspend fun finishedWithStagedFiles(): List<UploadEntity>
 

@@ -7,7 +7,7 @@ Ember adds Flare to the places you already share from: the share menu, the text 
 1. In any app, choose **Share**, then **Upload to Flare**.
 2. Ember shows the files, with options for this upload:
    - **Visibility**, **Expires**, and **Folder**. Each starts at your [upload defaults](settings.md#upload-defaults), and the label shows what the default is.
-   - **Password**, which people opening a public link must enter. Flare allows up to 72 bytes.
+   - **Password**, which people opening a public link must enter. Flare allows up to 72 bytes, and reads the password `null` as no password, so Ember asks for a different one.
 3. Choose **Upload**.
 
 When the upload finishes, Ember copies the link and shows **Done. Link copied.** with **Share** and **Open**. For several files, it copies all the links, one per line.
@@ -19,7 +19,7 @@ To skip the review step and upload right away with your defaults, turn off **Set
 ### What happens behind the scenes
 
 - Ember copies each shared file into its own storage first. Android revokes another app's permission to read a file once the share sheet closes, so the copy is what lets an upload finish in the background, or retry after you lose signal. Ember deletes the copy when the upload finishes or you remove it from history. Preparing needs free space for the file plus a 200 MB margin.
-- Files of 8 MiB or more upload through Flare's chunked upload API in 8 MiB parts. A dropped connection only repeats the part it interrupted.
+- Files of 8 MiB or more upload through Flare's chunked upload API in 8 MiB parts. A dropped connection only repeats the part it interrupted, and an upload that stops, for example when Android ends background work, continues from the parts Flare already has. Flare keeps unfinished parts for an hour after the last one arrives.
 - Ember checks each file's real type before uploading. Flare rejects a file whose bytes don't match the type it's sent with, and some apps report types wrongly.
 - Flare allows 30 upload starts per minute from one address. Ember paces itself under that, across shares and sync together.
 - If Flare can't be reached, uploads wait and try again later until it can. Other temporary failures, such as a server error, retry up to 8 times. Permanent problems, such as a file over your instance's size limit, show in **Library → Recent** with Flare's own explanation. Trying a failed upload again keeps the password you set.
