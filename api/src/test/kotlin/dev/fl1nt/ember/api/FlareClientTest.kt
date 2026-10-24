@@ -1,12 +1,16 @@
 package dev.fl1nt.ember.api
 
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
+import okio.BufferedSource
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -15,6 +19,8 @@ import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.util.Collections
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class FlareClientTest {
@@ -588,6 +594,54 @@ class FlareClientTest {
         assertThat(ChunkedProgress.fromJson("""{"uploadId":"a","partSize":5,"totalSize":9,"parts":[],"future":true}""")?.uploadId).isEqualTo("a")
         assertThat(ChunkedProgress.fromJson("not json")).isNull()
         assertThat(ChunkedProgress.fromJson("""{"uploadId":"a"}""")).isNull()
+    }
+
+    @Test
+    fun `reads responses and files away from the calling thread`() {
+        // Android forbids network reads on the main thread, so calls must be main-safe.
+        val callerThreads = Collections.synchronizedList(mutableListOf<Thread>())
+        val bodyReaders = Collections.synchronizedList(mutableListOf<Thread>())
+        val fileReaders = Collections.synchronizedList(mutableListOf<Thread>())
+        val recording = http.newBuilder().addInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            val body = response.body
+            response.newBuilder().body(
+                object : ResponseBody() {
+                    override fun contentType() = body.contentType()
+
+                    override fun contentLength() = body.contentLength()
+
+                    override fun source(): BufferedSource = body.source().also { bodyReaders += Thread.currentThread() }
+                },
+            ).build()
+        }.build()
+        val client = FlareClient(FlareOrigin.parse(server.url("/").toString()), FlareCredential.of("flr_test-token"), recording)
+        val file = object : UploadSource {
+            override val fileName = "a.png"
+            override val declaredMimeType = "image/png"
+            override val size: Long = png.size.toLong()
+            override fun open(): InputStream = object : ByteArrayInputStream(png) {
+                override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { fileReaders += Thread.currentThread() }
+            }
+        }
+        val link = """{"id":"cm_link","shortCode":"aB3_dE","targetUrl":"https://example.com/a","clicks":0,"createdAt":"2026-09-20T12:00:00.000Z"}"""
+        server.enqueue(json(200, """{"success":true,"data":$link}"""))
+        server.enqueue(json(200, """{"success":true,"data":{"urls":[$link]}}"""))
+        server.enqueue(json(200, uploadResponse))
+
+        Executors.newSingleThreadExecutor { Thread(it).also(callerThreads::add) }.asCoroutineDispatcher().use { caller ->
+            runBlocking(caller) {
+                client.createShortLink("https://example.com/a")
+                client.listShortLinks()
+                client.upload(file)
+            }
+        }
+
+        val caller = callerThreads.single()
+        assertThat(bodyReaders).isNotEmpty()
+        assertThat(bodyReaders).doesNotContain(caller)
+        assertThat(fileReaders).isNotEmpty()
+        assertThat(fileReaders).doesNotContain(caller)
     }
 
     @Test

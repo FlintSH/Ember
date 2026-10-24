@@ -7,9 +7,11 @@ import dev.fl1nt.ember.api.internal.fileDisposition
 import dev.fl1nt.ember.api.internal.readAtMost
 import dev.fl1nt.ember.api.internal.readInto
 import dev.fl1nt.ember.api.internal.skipFully
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -41,6 +43,10 @@ import java.io.InputStream
  * never retries a request that could create a duplicate file; callers decide
  * when to try an upload again.
  *
+ * Every function is safe to call from the main thread. Blocking work, such as
+ * reading a response or the file being uploaded, runs on [ioDispatcher].
+ * Progress callbacks arrive on background threads.
+ *
  * Next.js, which Flare runs on, cuts request bodies off at 10 MiB before Flare
  * reads them, so files of [chunkThresholdBytes] or more upload in parts of
  * [partSizeBytes]. Neither may exceed 8 MiB, and a file that would need more than
@@ -56,6 +62,7 @@ class FlareClient(
     private val partSizeBytes: Int = DEFAULT_PART_SIZE,
     private val chunkThresholdBytes: Long = DEFAULT_CHUNK_THRESHOLD,
     private val tempDirectory: File? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     init {
         require(partSizeBytes in MIN_PART_SIZE..MAX_PART_SIZE) { "Part size must be between 5 and 8 MiB" }
@@ -67,7 +74,7 @@ class FlareClient(
     val credentialKind: FlareCredential.Kind get() = credential.kind
 
     /** Confirms the address belongs to a Flare server. Needs no credential. */
-    suspend fun checkHealth() {
+    suspend fun checkHealth(): Unit = withContext(ioDispatcher) {
         val response = execute(request("/api/health").get().build(), authenticated = false)
         val body = response.bodyText()
         if (!response.isSuccessful) throw unexpected("The server answered HTTP ${response.code} instead of Flare's health check.")
@@ -82,7 +89,7 @@ class FlareClient(
     }
 
     /** Discovers what this credential may do. Nothing is created or changed. */
-    suspend fun probeCapabilities(): Capabilities {
+    suspend fun probeCapabilities(): Capabilities = withContext(ioDispatcher) {
         checkHealth()
         val capabilities = coroutineScope {
             val upload = async { probe(request("/api/files/chunks?uploadId=$PROBE_UPLOAD_ID&partNumber=1").get()) }
@@ -99,7 +106,7 @@ class FlareClient(
             )
         }
         if (capabilities.rejectedEverywhere) throw FlareException.Unauthorized()
-        return capabilities
+        capabilities
     }
 
     /**
@@ -126,6 +133,69 @@ class FlareClient(
         progress: ProgressListener? = null,
         resume: ChunkedProgress? = null,
         onChunkedProgress: (suspend (ChunkedProgress) -> Unit)? = null,
+    ): UploadedFile = withContext(ioDispatcher) { uploadFile(source, options, kind, progress, resume, onChunkedProgress) }
+
+    suspend fun listFiles(query: FileQuery = FileQuery()): FilePage = withContext(ioDispatcher) {
+        val url = origin.resolve("/api/files").newBuilder().apply {
+            addQueryParameter("page", query.page.toString())
+            addQueryParameter("limit", query.limit.toString())
+            addQueryParameter("sortBy", query.sort.wireValue)
+            query.search?.takeIf { it.isNotBlank() }?.let { addQueryParameter("search", it.trim()) }
+            if (query.types.isNotEmpty()) addQueryParameter("types", query.types.joinToString(","))
+            query.folderId?.let { addQueryParameter("folder", it) }
+        }.build()
+        val envelope = send(Request.Builder().url(url).get(), FileListEnvelope.serializer())
+        FilePage(envelope.data, envelope.pagination)
+    }
+
+    suspend fun createShortLink(target: String): ShortLink = withContext(ioDispatcher) {
+        val body = json.encodeToString(CreateShortLinkRequest.serializer(), CreateShortLinkRequest(target))
+        send(request("/api/urls").post(body.toRequestBody(JSON)), DataEnvelope.serializer(ShortLink.serializer())).data
+    }
+
+    suspend fun listShortLinks(): List<ShortLink> = withContext(ioDispatcher) {
+        send(request("/api/urls").get(), DataEnvelope.serializer(ShortLinkList.serializer())).data.urls
+    }
+
+    /** Deletes a short link by its record ID. An already deleted link counts as success. */
+    suspend fun deleteShortLink(id: String): Unit = withContext(ioDispatcher) {
+        require(id.matches(ROUTE_ID)) { "Unexpected short link ID" }
+        val response = execute(request("/api/urls/$id").delete().build())
+        response.use {
+            if (it.isSuccessful || it.code == 404) return@withContext
+            throw it.toFlareException()
+        }
+    }
+
+    /** Lists library folders. Flare only allows this for the account upload token. */
+    suspend fun listFolders(): List<RemoteFolder> = withContext(ioDispatcher) {
+        send(request("/api/folders").get(), DataEnvelope.serializer(ListSerializer(RemoteFolder.serializer()))).data
+    }
+
+    /** MIME types present in the library, for filters. */
+    suspend fun fileTypes(): List<String> = withContext(ioDispatcher) {
+        send(request("/api/files/types").get(), DataEnvelope.serializer(FileTypes.serializer())).data.types
+    }
+
+    /** A short link's public address. Flare's API only returns the code. */
+    fun shortLinkUrl(link: ShortLink, publicOrigin: FlareOrigin = origin): String = "$publicOrigin/u/${link.shortCode}"
+
+    /** The share page for a library file. */
+    fun pageUrl(file: RemoteFile, publicOrigin: FlareOrigin = origin): String = "$publicOrigin${file.urlPath}"
+
+    /**
+     * A thumbnail address. It only loads for files anyone may open: tokens don't
+     * authorize private thumbnails, which need a signed-in browser.
+     */
+    fun thumbnailUrl(file: RemoteFile): HttpUrl = origin.resolve("/api/files/${file.id}/thumbnail")
+
+    private suspend fun uploadFile(
+        source: UploadSource,
+        options: UploadOptions,
+        kind: UploadKind,
+        progress: ProgressListener?,
+        resume: ChunkedProgress?,
+        onChunkedProgress: (suspend (ChunkedProgress) -> Unit)?,
     ): UploadedFile {
         val stream = BufferedInputStream(openSource(source), STREAM_BUFFER_BYTES)
         return try {
@@ -146,57 +216,6 @@ class FlareClient(
             stream.close()
         }
     }
-
-    suspend fun listFiles(query: FileQuery = FileQuery()): FilePage {
-        val url = origin.resolve("/api/files").newBuilder().apply {
-            addQueryParameter("page", query.page.toString())
-            addQueryParameter("limit", query.limit.toString())
-            addQueryParameter("sortBy", query.sort.wireValue)
-            query.search?.takeIf { it.isNotBlank() }?.let { addQueryParameter("search", it.trim()) }
-            if (query.types.isNotEmpty()) addQueryParameter("types", query.types.joinToString(","))
-            query.folderId?.let { addQueryParameter("folder", it) }
-        }.build()
-        val envelope = send(Request.Builder().url(url).get(), FileListEnvelope.serializer())
-        return FilePage(envelope.data, envelope.pagination)
-    }
-
-    suspend fun createShortLink(target: String): ShortLink {
-        val body = json.encodeToString(CreateShortLinkRequest.serializer(), CreateShortLinkRequest(target))
-        return send(request("/api/urls").post(body.toRequestBody(JSON)), DataEnvelope.serializer(ShortLink.serializer())).data
-    }
-
-    suspend fun listShortLinks(): List<ShortLink> =
-        send(request("/api/urls").get(), DataEnvelope.serializer(ShortLinkList.serializer())).data.urls
-
-    /** Deletes a short link by its record ID. An already deleted link counts as success. */
-    suspend fun deleteShortLink(id: String) {
-        require(id.matches(ROUTE_ID)) { "Unexpected short link ID" }
-        val response = execute(request("/api/urls/$id").delete().build())
-        response.use {
-            if (it.isSuccessful || it.code == 404) return
-            throw it.toFlareException()
-        }
-    }
-
-    /** Lists library folders. Flare only allows this for the account upload token. */
-    suspend fun listFolders(): List<RemoteFolder> =
-        send(request("/api/folders").get(), DataEnvelope.serializer(ListSerializer(RemoteFolder.serializer()))).data
-
-    /** MIME types present in the library, for filters. */
-    suspend fun fileTypes(): List<String> =
-        send(request("/api/files/types").get(), DataEnvelope.serializer(FileTypes.serializer())).data.types
-
-    /** A short link's public address. Flare's API only returns the code. */
-    fun shortLinkUrl(link: ShortLink, publicOrigin: FlareOrigin = origin): String = "$publicOrigin/u/${link.shortCode}"
-
-    /** The share page for a library file. */
-    fun pageUrl(file: RemoteFile, publicOrigin: FlareOrigin = origin): String = "$publicOrigin${file.urlPath}"
-
-    /**
-     * A thumbnail address. It only loads for files anyone may open: tokens don't
-     * authorize private thumbnails, which need a signed-in browser.
-     */
-    fun thumbnailUrl(file: RemoteFile): HttpUrl = origin.resolve("/api/files/${file.id}/thumbnail")
 
     private suspend fun uploadSingle(
         stream: InputStream,
@@ -285,33 +304,32 @@ class FlareClient(
         return Measured.Copied(copyToTemporaryFile(head, stream, fileName))
     }
 
-    private suspend fun copyToTemporaryFile(head: ByteArray, rest: InputStream, fileName: String): File =
-        withContext(Dispatchers.IO) {
-            val file = try {
-                File.createTempFile("ember-upload-", ".tmp", tempDirectory)
-            } catch (error: IOException) {
+    private suspend fun copyToTemporaryFile(head: ByteArray, rest: InputStream, fileName: String): File {
+        val file = try {
+            File.createTempFile("ember-upload-", ".tmp", tempDirectory)
+        } catch (error: IOException) {
+            throw FlareException.Network(IOException("Couldn't prepare $fileName for upload: ${error.message}", error))
+        }
+        try {
+            FileOutputStream(file).use { out ->
+                out.write(head)
+                val buffer = ByteArray(COPY_BUFFER_BYTES)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = rest.read(buffer)
+                    if (read == -1) break
+                    out.write(buffer, 0, read)
+                }
+            }
+            return file
+        } catch (error: Throwable) {
+            file.delete()
+            if (error is IOException) {
                 throw FlareException.Network(IOException("Couldn't prepare $fileName for upload: ${error.message}", error))
             }
-            try {
-                FileOutputStream(file).use { out ->
-                    out.write(head)
-                    val buffer = ByteArray(COPY_BUFFER_BYTES)
-                    while (true) {
-                        ensureActive()
-                        val read = rest.read(buffer)
-                        if (read == -1) break
-                        out.write(buffer, 0, read)
-                    }
-                }
-                file
-            } catch (error: Throwable) {
-                file.delete()
-                if (error is IOException) {
-                    throw FlareException.Network(IOException("Couldn't prepare $fileName for upload: ${error.message}", error))
-                }
-                throw error
-            }
+            throw error
         }
+    }
 
     /**
      * Uploads [size] bytes from [first] through Flare's chunked upload API,
