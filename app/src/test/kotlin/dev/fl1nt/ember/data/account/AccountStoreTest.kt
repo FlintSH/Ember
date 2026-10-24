@@ -52,7 +52,16 @@ class AccountStoreTest {
         assertThat(store.credential()).isNull()
         assertThat(store.current()!!.problem).isEqualTo(AccountProblem.TOKEN_UNREADABLE)
 
-        // Reconnecting starts clean.
+        // If the Keystore was only having a bad moment, reading the token again clears the problem.
+        assertThat(AccountStore(dataStore, FakeCipher()).credential()?.secret).isEqualTo("flr_secret")
+        assertThat(store.current()!!.problem).isNull()
+
+        // Reconnecting starts clean too.
+        AccountStore(dataStore, object : SecretCipher {
+            override fun encrypt(plaintext: String) = error("unused")
+            override fun decrypt(encoded: String): String = throw java.security.ProviderException("Keystore operation failed")
+        }).credential()
+        assertThat(store.current()!!.problem).isEqualTo(AccountProblem.TOKEN_UNREADABLE)
         AccountStore(dataStore, FakeCipher()).connect(FlareOrigin.parse("files.example.com"), FlareCredential.of("flr_new"), capabilities, displayName = null)
         assertThat(store.current()!!.problem).isNull()
     }

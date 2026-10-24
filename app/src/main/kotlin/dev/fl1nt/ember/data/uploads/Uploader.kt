@@ -35,6 +35,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
 import java.security.GeneralSecurityException
+import java.security.ProviderException
 
 /** Reads a content URI, such as a MediaStore photo or a document in a synced folder. */
 class ContentUploadSource(
@@ -84,6 +85,8 @@ class Uploader(
         val password = try {
             running.sealedPassword?.let(cipher::decrypt)
         } catch (_: GeneralSecurityException) {
+            return failLocked(running)
+        } catch (_: ProviderException) {
             return failLocked(running)
         } catch (_: IllegalArgumentException) {
             return failLocked(running)

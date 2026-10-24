@@ -2,6 +2,7 @@ package dev.fl1nt.ember.system
 
 import android.content.Context
 import android.database.sqlite.SQLiteFullException
+import android.util.Log
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.api.FlareException
 import dev.fl1nt.ember.data.uploads.InsufficientSpaceException
@@ -11,6 +12,7 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.security.GeneralSecurityException
+import java.security.ProviderException
 import java.security.cert.CertificateException
 import javax.net.ssl.SSLException
 
@@ -33,14 +35,20 @@ fun describeError(context: Context, error: Throwable, host: String? = null): Str
         is FlareException -> error.message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.error_generic)
         // Ember's own problems, so they don't read like network trouble.
         is InsufficientSpaceException, is SQLiteFullException -> context.getString(R.string.error_no_space)
-        is GeneralSecurityException -> context.getString(R.string.error_secure_storage)
+        is GeneralSecurityException, is ProviderException -> context.getString(R.string.error_secure_storage)
         is FileNotFoundException -> context.getString(R.string.error_file_gone)
         is SecurityException -> context.getString(R.string.error_file_access)
         // The disk filling up mid-copy surfaces as a plain IOException.
         is IOException -> context.getString(if (error.isOutOfSpace()) R.string.error_no_space else R.string.error_read)
-        else -> context.getString(R.string.error_generic)
+        else -> {
+            // Nothing more specific to say, so keep the details for bug reports.
+            Log.w(TAG, "Unexpected error", error)
+            context.getString(R.string.error_generic)
+        }
     }
 }
+
+private const val TAG = "Ember"
 
 private fun IOException.isOutOfSpace(): Boolean =
     generateSequence<Throwable>(this) { it.cause }.any { it.message?.contains("ENOSPC") == true || it.message?.contains("No space left") == true }

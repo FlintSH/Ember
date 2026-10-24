@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.security.GeneralSecurityException
+import java.security.ProviderException
 
 /** Why uploads are paused until someone reconnects. */
 enum class AccountProblem {
@@ -58,15 +59,23 @@ class AccountStore(
     suspend fun credential(): FlareCredential? {
         val prefs = dataStore.data.first()
         val sealed = prefs[TOKEN] ?: return null
-        return try {
+        val credential = try {
             FlareCredential.of(cipher.decrypt(sealed))
         } catch (_: GeneralSecurityException) {
-            reportProblem(AccountProblem.TOKEN_UNREADABLE)
+            null
+        } catch (_: ProviderException) {
+            // The Keystore reports some failures unchecked.
             null
         } catch (_: IllegalArgumentException) {
-            reportProblem(AccountProblem.TOKEN_UNREADABLE)
             null
         }
+        if (credential == null) {
+            reportProblem(AccountProblem.TOKEN_UNREADABLE)
+        } else if (prefs[PROBLEM] == AccountProblem.TOKEN_UNREADABLE.name) {
+            // A passing Keystore error shouldn't leave Ember asking to reconnect.
+            clearProblem()
+        }
+        return credential
     }
 
     /** Records that uploads can't continue until someone reconnects. */
