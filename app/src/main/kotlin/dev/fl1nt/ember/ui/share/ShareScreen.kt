@@ -153,10 +153,12 @@ private fun Header(state: ShareState, onDismiss: (() -> Unit)?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         EmberMark(size = 30.dp)
         Column(Modifier.weight(1f)) {
+            // Shortening keeps its title through to the result, and after a failed try.
+            val shortening = state.shortLink != null || (state.text.isNotEmpty() && state.textAction == TextAction.SHORTEN && state.uploads.isEmpty())
             Text(
                 stringResource(
                     when {
-                        state.phase == SharePhase.REVIEW_TEXT && state.textAction == TextAction.SHORTEN -> R.string.share_title_shorten
+                        shortening -> R.string.share_title_shorten
                         state.text.isNotEmpty() -> R.string.share_title_paste
                         else -> R.string.share_title_upload
                     },

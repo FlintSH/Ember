@@ -243,4 +243,10 @@ class ScreenshotTest {
     fun shareShorten() = snap("share-shorten") {
         ShareScreen(share(ShareState(phase = SharePhase.REVIEW_TEXT, text = SampleData.links[2].targetUrl, url = SampleData.links[2].targetUrl, textAction = TextAction.SHORTEN)), noop)
     }
+
+    @Test
+    fun shareShortenDone() = snap("share-shorten-done") {
+        val link = SampleData.links[2]
+        ShareScreen(share(ShareState(phase = SharePhase.DONE, text = link.targetUrl, url = link.targetUrl, textAction = TextAction.SHORTEN, shortLink = link, copied = true)), noop)
+    }
 }
