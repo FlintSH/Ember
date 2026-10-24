@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Flare's default dark palette. Compose owns the full theme. -->
+    <color name="ember_background">#FF020817</color>
+    <color name="ember_flame">#FFFF6A00</color>
+</resources>

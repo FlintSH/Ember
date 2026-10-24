@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ember only talks to the Flare server you connect it to. Self-hosted Flare often
+  runs on a home network over plain HTTP, or behind a private certificate
+  authority installed on the device. Ember asks for confirmation before sending
+  a token over HTTP to anything that isn't a local address. See docs/security.md.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates
+                src="user"
+                tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

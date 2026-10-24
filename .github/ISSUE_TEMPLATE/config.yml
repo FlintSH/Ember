@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Flare Discord
+    url: https://discord.gg/mwVAjKwPus
+    about: Ask questions and get help with Ember and Flare.
+  - name: Flare issues
+    url: https://github.com/FlintSH/Flare/issues
+    about: Problems with the Flare server itself.

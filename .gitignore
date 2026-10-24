@@ -1,0 +1,26 @@
+# Gradle and builds
+.gradle/
+build/
+.kotlin/
+local.properties
+captures/
+*.apk
+*.aab
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Signing and secrets
+*.jks
+*.keystore
+*.p12
+*.env
+signing.properties
+
+# Local tooling
+.agent-artifacts/
+e2e-results/
+.DS_Store
+__pycache__/
