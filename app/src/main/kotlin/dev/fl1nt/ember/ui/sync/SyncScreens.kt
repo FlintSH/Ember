@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.fl1nt.ember.R
 import dev.fl1nt.ember.data.db.SourceType
 import dev.fl1nt.ember.data.db.SyncSourceEntity
+import dev.fl1nt.ember.data.db.UploadEntity
 import dev.fl1nt.ember.data.settings.UploadPreset
 import dev.fl1nt.ember.data.sync.MediaAlbum
 import dev.fl1nt.ember.data.sync.NewSource
@@ -343,20 +344,11 @@ fun AddSourceScreen(
                     is NewSource.Folder -> selected.location
                 },
             )
-            SectionTitle(stringResource(R.string.add_source_start_with))
-            SegmentedControl(
-                options = listOf(
-                    stringResource(R.string.add_source_new_only),
-                    if (selected is NewSource.Album) countString(R.plurals.add_source_everything_count, selected.album.count) else stringResource(R.string.add_source_everything),
-                ),
-                selected = if (state.options.uploadExisting) 1 else 0,
-                onSelect = { index -> onOptions { it.copy(uploadExisting = index == 1) } },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                stringResource(if (state.options.uploadExisting) R.string.add_source_everything_hint else R.string.add_source_new_only_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            WhichFilesSection(
+                uploadExisting = state.options.uploadExisting,
+                everything = if (selected is NewSource.Album) countString(R.plurals.source_everything_count, selected.album.count) else stringResource(R.string.source_everything),
+                hint = stringResource(if (state.options.uploadExisting) R.string.add_source_everything_hint else R.string.add_source_new_only_hint),
+                onSelect = { everything -> onOptions { it.copy(uploadExisting = everything) } },
             )
             SourceOptionsCard(
                 isAlbum = selected is NewSource.Album,
@@ -392,6 +384,19 @@ private fun AlbumRow(album: MediaAlbum, onClick: () -> Unit) {
         }
         Icon(Lucide.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
     }
+}
+
+/** Whether a sync folder uploads only new files or everything in it, and what that means. */
+@Composable
+fun WhichFilesSection(uploadExisting: Boolean, everything: String, hint: String, onSelect: (Boolean) -> Unit) {
+    SectionTitle(stringResource(R.string.source_which_files))
+    SegmentedControl(
+        options = listOf(stringResource(R.string.source_new_only), everything),
+        selected = if (uploadExisting) 1 else 0,
+        onSelect = { index -> if ((index == 1) != uploadExisting) onSelect(index == 1) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** Where a sync folder's uploads go, and how Ember tells you about them. */
@@ -436,13 +441,38 @@ fun SourceOptionsCard(
 }
 
 @Composable
-fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (dev.fl1nt.ember.data.db.UploadEntity) -> Unit) {
+fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (UploadEntity) -> Unit) {
     val viewModel = emberViewModel(key = "source-$id") { SourceDetailViewModel(it, id) }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var confirmRemove by remember { mutableStateOf(false) }
     LaunchedEffect(state.removed) { if (state.removed) onBack() }
+    SourceDetailScreen(
+        state = state,
+        onBack = onBack,
+        onOptions = { viewModel.updateOptions(it) },
+        onUploadExisting = { viewModel.setUploadExisting(it) },
+        onRetryFailed = { viewModel.retryFailures() },
+        onRemove = { viewModel.remove() },
+        onSelectUpload = onSelectUpload,
+    )
+}
+
+@Composable
+fun SourceDetailScreen(
+    state: SourceDetailState,
+    onBack: () -> Unit,
+    onOptions: (SourceOptions) -> Unit,
+    onUploadExisting: (Boolean) -> Unit,
+    onRetryFailed: () -> Unit,
+    onRemove: () -> Unit,
+    onSelectUpload: (UploadEntity) -> Unit,
+) {
     val source = state.source ?: return
+    val context = LocalContext.current
+    var confirmRemove by remember { mutableStateOf(false) }
+    var confirmUploadExisting by remember { mutableStateOf(false) }
+    val uploadsExisting = source.sinceMillis <= 0
     val options = SourceOptions(
+        uploadExisting = uploadsExisting,
         preset = UploadPreset.decode(source.presetJson),
         copyLink = source.copyLink,
         notifyEach = source.notifyEach,
@@ -462,30 +492,30 @@ fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (dev.fl1nt.e
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StatusPill(countString(R.plurals.sync_uploaded_count, state.counts.uploaded), icon = Lucide.CircleCheck, tone = Tone.SUCCESS)
+            if (source.pendingCount > 0 && source.enabled) StatusPill(countString(R.plurals.sync_waiting_count, source.pendingCount), icon = Lucide.Clock)
             if (state.counts.failed > 0) StatusPill(countString(R.plurals.sync_failed_count, state.counts.failed), icon = Lucide.CircleAlert, tone = Tone.DANGER)
         }
         source.lastError?.let { Notice(sourceErrorText(it), tone = Tone.WARNING) }
         if (state.counts.failed > 0) {
-            OutlineButton(stringResource(R.string.source_retry_failed), onClick = { viewModel.retryFailures() }, icon = Lucide.RotateCcw, modifier = Modifier.fillMaxWidth())
+            OutlineButton(stringResource(R.string.source_retry_failed), onClick = onRetryFailed, icon = Lucide.RotateCcw, modifier = Modifier.fillMaxWidth())
         }
+        WhichFilesSection(
+            uploadExisting = uploadsExisting,
+            everything = stringResource(R.string.source_everything),
+            hint = if (uploadsExisting) {
+                stringResource(R.string.source_everything_hint)
+            } else {
+                stringResource(R.string.source_new_only_hint, Formats.dateTime(context, source.sinceMillis))
+            },
+            // What's already there can be thousands of files, so that asks first.
+            onSelect = { everything -> if (everything) confirmUploadExisting = true else onUploadExisting(false) },
+        )
         SourceOptionsCard(
             isAlbum = source.type == SourceType.MEDIA_ALBUM,
             options = options,
             folders = state.folders,
             emberDefaults = state.defaults,
-            onOptions = { transform ->
-                val next = transform(options)
-                viewModel.update {
-                    it.copy(
-                        presetJson = next.preset.encode(),
-                        copyLink = next.copyLink,
-                        notifyEach = next.notifyEach,
-                        includeImages = next.includeImages,
-                        includeVideos = next.includeVideos,
-                        includeSubfolders = next.includeSubfolders,
-                    )
-                }
-            },
+            onOptions = { transform -> onOptions(transform(options)) },
         )
         if (state.recent.isNotEmpty()) {
             SectionTitle(stringResource(R.string.source_recent))
@@ -497,13 +527,28 @@ fun SourceDetailRoute(id: Long, onBack: () -> Unit, onSelectUpload: (dev.fl1nt.e
         Text(stringResource(R.string.source_remove_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
     }
+    if (confirmUploadExisting) {
+        AlertDialog(
+            onDismissRequest = { confirmUploadExisting = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            title = { Text(stringResource(R.string.source_upload_existing_title, source.name)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.source_upload_existing_body))
+                    if (!source.enabled) Text(stringResource(R.string.source_upload_existing_paused, source.name))
+                }
+            },
+            confirmButton = { GhostButton(stringResource(R.string.source_upload_existing_confirm), onClick = { confirmUploadExisting = false; onUploadExisting(true) }) },
+            dismissButton = { GhostButton(stringResource(R.string.action_cancel), onClick = { confirmUploadExisting = false }) },
+        )
+    }
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             title = { Text(stringResource(R.string.source_remove_title, source.name)) },
             text = { Text(stringResource(R.string.source_remove_hint)) },
-            confirmButton = { GhostButton(stringResource(R.string.source_remove), onClick = { confirmRemove = false; viewModel.remove() }, color = MaterialTheme.colorScheme.error) },
+            confirmButton = { GhostButton(stringResource(R.string.source_remove), onClick = { confirmRemove = false; onRemove() }, color = MaterialTheme.colorScheme.error) },
             dismissButton = { GhostButton(stringResource(R.string.action_cancel), onClick = { confirmRemove = false }) },
         )
     }

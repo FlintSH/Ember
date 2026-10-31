@@ -104,6 +104,8 @@ android {
             isIncludeAndroidResources = true
             all { test ->
                 test.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+                // Screenshots show dates and times, so they render in one time zone everywhere.
+                test.systemProperty("user.timezone", "UTC")
                 test.maxHeapSize = "2g"
                 // Robolectric's API 36 runtime reaches into JDK internals that JDK 17+ hides by default.
                 test.jvmArgs(

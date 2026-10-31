@@ -61,6 +61,12 @@ class FlareApi(baseUrl: String, private val token: String) {
         return (0 until data.length()).associate { data.getJSONObject(it).let { file -> file.getString("name") to file.getString("mimeType") } }
     }
 
+    /** Names of the library files matching [search], one per file, so a duplicate shows up twice. */
+    fun fileNames(search: String): List<String> {
+        val data = get("/api/files", mapOf("search" to search, "limit" to "100")).getJSONArray("data")
+        return (0 until data.length()).map { data.getJSONObject(it).getString("name") }
+    }
+
     fun shortLinkTargets(): List<String> {
         val urls = get("/api/urls").getJSONObject("data").getJSONArray("urls")
         return (0 until urls.length()).map { urls.getJSONObject(it).getString("targetUrl") }

@@ -61,12 +61,16 @@ Uploads blocked by something outside Ember, like Android 17's local network acce
 `SyncEngine.run()` holds a process-wide lock, so periodic, media-triggered, and manual runs never upload the same file twice. For each enabled source it:
 
 1. Scans: `MediaStoreScanner` queries an album's bucket, and `DocumentTreeScanner` walks a picked folder's document tree.
-2. Plans with `SyncPlanner`, a pure function: skip files in the ledger, files older than the source's start, hidden or partial files, and files still being written; order oldest first.
+2. Plans with `SyncPlanner`, a pure function: skip files in the ledger, files older than the source's start, hidden or partial files, and files still being written; order oldest first. The start, `sinceMillis`, is `0` for **Everything here** and the time the folder was added for **New files only**, compared in whole seconds because MediaStore records them. A file with a queued upload, waiting to retry or resume, is planned whatever the start, and an album with one is scanned in full.
 3. Uploads each file through `Uploader` and records it in the ledger as uploaded, permanently failed, or skipped (cancelled). Temporary failures stay out of the ledger and retry on a later run, after fresh files. A run stops early when Flare is out of reach or several files fail in a row. Deleted files aren't recorded, so a file on a drive that comes back still uploads.
 
-One source that can't be scanned records why and the others continue. Before each file the engine re-reads its source, so pausing or removing a folder stops a running sync. Each run first puts rows cut off by process death back in the queue, and drops unfinished rows whose folder or file is gone.
+Across sources, fresh files go before ones that failed before, and within each group, new files go before files that were already in a folder when it was added. Those older files upload without copying their link or notifying one by one, and the run's summary counts them.
 
-`SyncWorker` runs the engine for at most 8 minutes, or 30 while in the foreground, then schedules a continuation. Scheduling uses three kinds of work: a periodic safety net, a one-time job triggered by MediaStore changes that re-arms itself after each run, and expedited jobs for **Sync now**.
+Switching a folder between **New files only** and **Everything here** only moves its start, so it only affects files Ember hasn't started. The ledger stays, so files that already uploaded aren't sent again. Going back calls `SyncEngine.recount()`, which scans and plans the folder without uploading, so its waiting count is right even while sync is off or waiting for Wi-Fi.
+
+One source that can't be scanned records why and the others continue. Before each file the engine re-reads its source, so pausing or removing a folder, or moving its start later, takes effect before the next file. Each run first puts rows cut off by process death back in the queue, and drops unfinished rows whose folder or file is gone.
+
+`SyncWorker` runs the engine for at most 8 minutes, or 30 while in the foreground, then schedules a continuation. Continuing a sync someone started counts as user-initiated too, so it finishes while automatic sync is off. Scheduling uses three kinds of work: a periodic safety net, a one-time job triggered by MediaStore changes that re-arms itself after each run, and expedited jobs for **Sync now**.
 
 ### The share sheet
 
