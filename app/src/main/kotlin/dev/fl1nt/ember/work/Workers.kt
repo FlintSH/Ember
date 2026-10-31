@@ -118,7 +118,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             SyncRun.Disabled, SyncRun.NotConnected -> Result.success()
             is SyncRun.Paused -> {
-                c.scheduler.continueSync(prefs)
+                c.scheduler.continueSync(prefs, userInitiated = userInitiated)
                 Result.success()
             }
             is SyncRun.Retry -> Result.retry()

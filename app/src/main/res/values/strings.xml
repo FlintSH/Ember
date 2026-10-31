@@ -388,13 +388,6 @@
     <string name="add_source_other">Other folders</string>
     <string name="add_source_choose_folder">Choose a folder</string>
     <string name="add_source_choose_folder_hint">Documents, recordings, downloads, and more</string>
-    <string name="add_source_start_with">Start with</string>
-    <string name="add_source_new_only">New files only</string>
-    <string name="add_source_everything">Everything here</string>
-    <plurals name="add_source_everything_count">
-        <item quantity="one">All %1$s item</item>
-        <item quantity="other">All %1$s items</item>
-    </plurals>
     <string name="add_source_new_only_hint">Files added from now on upload. What\'s already here stays on your phone.</string>
     <string name="add_source_everything_hint">Ember uploads what\'s already here too, oldest first. Large albums can take a while.</string>
     <string name="add_source_save">Start syncing</string>
@@ -403,6 +396,19 @@
         <item quantity="other">%1$s items</item>
     </plurals>
 
+    <string name="source_which_files">Which files upload</string>
+    <string name="source_new_only">New files only</string>
+    <string name="source_everything">Everything here</string>
+    <plurals name="source_everything_count">
+        <item quantity="one">All %1$s item</item>
+        <item quantity="other">All %1$s items</item>
+    </plurals>
+    <string name="source_new_only_hint">Files added since %1$s upload. Older files stay on your phone.</string>
+    <string name="source_everything_hint">Ember uploads what\'s already here too, oldest first. Files that already uploaded aren\'t sent again.</string>
+    <string name="source_upload_existing_title">Upload what\'s already in %1$s?</string>
+    <string name="source_upload_existing_body">Ember uploads the files that were here before you added this folder, oldest first. Files that already uploaded aren\'t sent again. A large folder can take a while.</string>
+    <string name="source_upload_existing_confirm">Upload them</string>
+    <string name="source_upload_existing_paused">%1$s is paused, so they upload once you turn it back on.</string>
     <string name="source_options_destination">Where uploads go</string>
     <string name="source_options_behavior">After each upload</string>
     <string name="source_copy_link">Copy the link</string>
@@ -416,7 +422,7 @@
     <string name="source_retry_failed">Try failed files again</string>
     <string name="source_remove">Stop syncing this folder</string>
     <string name="source_remove_title">Stop syncing %1$s?</string>
-    <string name="source_remove_hint">Files already in Flare stay there. Ember stops watching this folder.</string>
+    <string name="source_remove_hint">Files already in Flare stay there. Ember stops watching this folder and forgets which files it sent, so adding it again with Everything here sends them again.</string>
 
     <!-- Settings -->
     <string name="settings_eyebrow">Your preferences</string>

@@ -7,6 +7,7 @@ import androidx.core.content.getSystemService
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
+import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import com.google.common.truth.Truth.assertThat
@@ -76,9 +77,14 @@ class SyncEngineTest {
     private lateinit var staging: UploadStaging
     private lateinit var connection: FlareConnection
     private lateinit var repository: UploadRepository
+    private lateinit var syncRepository: SyncRepository
     private lateinit var stagingRoot: File
     private val found = mutableListOf<SourceItem>()
-    private val scanner = SourceScanner { found.toList() }
+
+    /** Lists [found]. For albums it leaves out files before the start, as the MediaStore query does. */
+    private val scanner = SourceScanner { source ->
+        found.filter { source.type != SourceType.MEDIA_ALBUM || source.sinceMillis <= 0 || it.addedAtMillis / 1000 >= source.sinceMillis / 1000 }
+    }
 
     @Before
     fun setUp() = runBlocking<Unit> {
@@ -100,6 +106,14 @@ class SyncEngineTest {
         connection = FlareConnection(accounts, OkHttpClient())
         WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().setExecutor(SynchronousExecutor()).build())
         repository = UploadRepository(context, db, staging, FakeCipher(), WorkScheduler(context, settings))
+        syncRepository = SyncRepository(
+            db,
+            context.contentResolver,
+            MediaAlbums(context.contentResolver),
+            settings,
+            WorkScheduler(context, settings),
+            recount = { shared.recount(it) },
+        )
     }
 
     @After
@@ -134,12 +148,36 @@ class SyncEngineTest {
         return SourceItem(name, name, "image/png", file.length(), file.toURI().toString(), time, time)
     }
 
-    private suspend fun addSource(preset: UploadPreset = UploadPreset(), copyLink: Boolean = false, name: String = "Screenshots"): Long =
-        db.sources().insert(
-            SyncSourceEntity(type = SourceType.FOLDER, name = name, treeUri = "content://test/$name", sinceMillis = 0, presetJson = preset.encode(), copyLink = copyLink, createdAt = 0),
-        )
+    private suspend fun addSource(
+        preset: UploadPreset = UploadPreset(),
+        copyLink: Boolean = false,
+        name: String = "Screenshots",
+        since: Long = 0,
+        createdAt: Long = 0,
+        enabled: Boolean = true,
+        notifyEach: Boolean = false,
+        type: SourceType = SourceType.FOLDER,
+    ): Long = db.sources().insert(
+        SyncSourceEntity(
+            type = type,
+            name = name,
+            treeUri = "content://test/$name",
+            sinceMillis = since,
+            presetJson = preset.encode(),
+            copyLink = copyLink,
+            notifyEach = notifyEach,
+            enabled = enabled,
+            createdAt = createdAt,
+        ),
+    )
 
-    private fun run(): SyncRun = runBlocking { engine().run(mediaOnly = false, userInitiated = false, deadlineMillis = Long.MAX_VALUE) }
+    /** When the folders in the "which files upload" tests were added: half an hour ago. */
+    private val added = System.currentTimeMillis() - 30 * 60_000
+
+    /** The engine [run] and [syncRepository] share, as in the app. */
+    private val shared by lazy { engine() }
+
+    private fun run(): SyncRun = runBlocking { shared.run(mediaOnly = false, userInitiated = false, deadlineMillis = Long.MAX_VALUE) }
 
     @Test
     fun `uploads new files once with the source's options`() = runBlocking<Unit> {
@@ -307,6 +345,143 @@ class SyncEngineTest {
         assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
         assertThat(server.requestCount).isEqualTo(1)
         assertThat(db.ledger().forSource(removed)).isEmpty()
+    }
+
+    @Test
+    fun `switching a folder to everything uploads what was already there, once`() = runBlocking<Unit> {
+        val id = addSource(name = "Camera", since = added, createdAt = added)
+        found += listOf(file("before-1.png", ageMinutes = 60), file("before-2.png", ageMinutes = 45), file("after.png", ageMinutes = 10))
+        server.enqueue(ok("after.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+
+        syncRepository.setUploadExisting(id, true)
+        assertThat(db.sources().get(id)!!.sinceMillis).isEqualTo(0)
+        server.enqueue(ok("before-1.png"))
+        server.enqueue(ok("before-2.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 2, failed = 0))
+
+        // The older files go oldest first, and the newer one isn't sent again.
+        assertThat(server.takeRequest().body!!.utf8()).contains("after.png")
+        assertThat(server.takeRequest().body!!.utf8()).contains("before-1.png")
+        assertThat(server.takeRequest().body!!.utf8()).contains("before-2.png")
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 0))
+        assertThat(server.requestCount).isEqualTo(3)
+        assertThat(db.ledger().forSource(id).map { it.state }).containsExactly(LedgerState.UPLOADED, LedgerState.UPLOADED, LedgerState.UPLOADED)
+
+        // Going back counts new files from when the folder was added, as before.
+        syncRepository.setUploadExisting(id, false)
+        assertThat(db.sources().get(id)!!.sinceMillis).isEqualTo(added)
+    }
+
+    @Test
+    fun `what was already there goes after new files and doesn't copy links or notify one by one`() = runBlocking<Unit> {
+        val id = addSource(copyLink = true, notifyEach = true, createdAt = added)
+        found += listOf(file("old.png", ageMinutes = 60), file("new.png", ageMinutes = 10))
+        server.enqueue(ok("new.png"))
+        server.enqueue(ok("old.png"))
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 2, failed = 0))
+        assertThat(server.takeRequest().body!!.utf8()).contains("new.png")
+        assertThat(server.takeRequest().body!!.utf8()).contains("old.png")
+        val rows = db.uploads().observeRecent(10).firstValue().associateBy { it.fileName }
+        assertThat(rows.getValue("new.png").copyLink).isTrue()
+        assertThat(rows.getValue("new.png").notify).isTrue()
+        assertThat(rows.getValue("old.png").copyLink).isFalse()
+        assertThat(rows.getValue("old.png").notify).isFalse()
+        // The older file didn't replace the new one's link on the clipboard.
+        assertThat(context.getSystemService<ClipboardManager>()!!.primaryClip!!.getItemAt(0).text.toString()).endsWith("new.png")
+        assertThat(db.ledger().forSource(id)).hasSize(2)
+    }
+
+    @Test
+    fun `going back to new files only stops older files Ember hasn't started`() = runBlocking<Unit> {
+        val id = addSource(name = "Camera", since = 0, createdAt = added)
+        found += listOf(file("old-1.png", ageMinutes = 60), file("old-2.png", ageMinutes = 50), file("new.png", ageMinutes = 10))
+        server.enqueue(ok("new.png"))
+        server.enqueue(error(503, "Try again"))
+        assertThat(run()).isInstanceOf(SyncRun.Retry::class.java)
+
+        // old-1.png waits to try again, and old-2.png hasn't started. Only the waiting one is left.
+        syncRepository.setUploadExisting(id, false)
+        assertThat(db.sources().get(id)!!.pendingCount).isEqualTo(1)
+        server.enqueue(ok("old-1.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(server.requestCount).isEqualTo(3)
+        assertThat(db.ledger().get(id, "old-2.png")).isNull()
+        assertThat(db.sources().get(id)!!.pendingCount).isEqualTo(0)
+
+        // Everything here again picks up where it stopped.
+        syncRepository.setUploadExisting(id, true)
+        server.enqueue(ok("old-2.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(server.requestCount).isEqualTo(4)
+    }
+
+    @Test
+    fun `older files you try again upload after going back to new files only`() = runBlocking<Unit> {
+        // An album, whose scan leaves out older files unless one is waiting.
+        val id = addSource(name = "Camera", since = 0, createdAt = added, type = SourceType.MEDIA_ALBUM)
+        found += listOf(file("big.png", ageMinutes = 60), file("bigger.png", ageMinutes = 50))
+        server.enqueue(error(413, "Too large"))
+        server.enqueue(error(413, "Too large"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 0, failed = 2))
+        syncRepository.setUploadExisting(id, false)
+
+        // One from Library, then the rest with the folder's "Try failed files again".
+        val big = db.uploads().observeRecent(10).firstValue().single { it.fileName == "big.png" }
+        assertThat(repository.retry(big.id)).isTrue()
+        server.enqueue(ok("big.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+
+        syncRepository.retryFailures(id)
+        server.enqueue(ok("bigger.png"))
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 1, failed = 0))
+        assertThat(db.ledger().forSource(id).map { it.state }).containsExactly(LedgerState.UPLOADED, LedgerState.UPLOADED)
+    }
+
+    @Test
+    fun `going back to new files only during a sync stops before the next older file`() = runBlocking<Unit> {
+        val id = addSource(name = "Camera", since = 0, createdAt = added)
+        found += listOf(file("old-1.png", ageMinutes = 60), file("old-2.png", ageMinutes = 50), file("new.png", ageMinutes = 10))
+        server.dispatcher = object : mockwebserver3.Dispatcher() {
+            override fun dispatch(request: mockwebserver3.RecordedRequest): MockResponse {
+                // Someone changes their mind while the first older file uploads.
+                if (request.body!!.utf8().contains("old-1.png")) runBlocking { syncRepository.setUploadExisting(id, false) }
+                return ok("photo.png")
+            }
+        }
+
+        assertThat(run()).isEqualTo(SyncRun.Completed(uploaded = 2, failed = 0))
+        assertThat(server.takeRequest().body!!.utf8()).contains("new.png")
+        assertThat(server.takeRequest().body!!.utf8()).contains("old-1.png")
+        assertThat(server.requestCount).isEqualTo(2)
+        assertThat(db.ledger().get(id, "old-2.png")).isNull()
+        assertThat(db.sources().get(id)!!.pendingCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `switching to everything syncs right away, and going back counts again without syncing`() = runBlocking<Unit> {
+        val id = addSource(name = "Camera", since = added, createdAt = added, enabled = false)
+        found += file("old.png", ageMinutes = 60)
+        fun syncs() = WorkManager.getInstance(context).getWorkInfosForUniqueWork(WorkScheduler.SYNC_NOW).get().size
+
+        // A paused folder keeps the choice for when it's back on.
+        syncRepository.setUploadExisting(id, true)
+        assertThat(db.sources().get(id)!!.sinceMillis).isEqualTo(0)
+        assertThat(syncs()).isEqualTo(0)
+
+        db.sources().get(id)!!.let { db.sources().update(it.copy(enabled = true, sinceMillis = added)) }
+        syncRepository.setUploadExisting(id, true)
+        assertThat(syncs()).isEqualTo(1)
+        // Choosing what it already does changes nothing.
+        syncRepository.setUploadExisting(id, true)
+        assertThat(syncs()).isEqualTo(1)
+
+        // As if a scan had found the older file waiting before going back.
+        db.sources().recordScan(id, 0, 1, null)
+        syncRepository.setUploadExisting(id, false)
+        assertThat(syncs()).isEqualTo(1)
+        assertThat(db.sources().get(id)!!.pendingCount).isEqualTo(0)
     }
 
     @Test

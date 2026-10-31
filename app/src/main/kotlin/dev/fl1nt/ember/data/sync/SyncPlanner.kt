@@ -49,11 +49,13 @@ object SyncPlanner {
         ledger: Map<String, LedgerEntity>,
         now: Long,
         settleMillis: Long = settleMillis(type, sdk = 29),
+        /** Files with an upload waiting to retry or resume. They finish whatever the start. */
+        started: Set<String> = emptySet(),
     ): SyncPlan {
         var settling = 0
         val toUpload = items.asSequence()
             .filter { isWanted(it) }
-            .filter { sinceMillis <= 0 || it.addedAtMillis >= sinceMillis }
+            .filter { isAfterStart(sinceMillis, it) || it.key in started }
             // Uploaded or permanently failed files never repeat. "Retry failed" clears failures.
             .filter { ledger[it.key] == null }
             .filter { item ->
@@ -67,6 +69,18 @@ object SyncPlanner {
             .toList()
         return SyncPlan(toUpload, settling)
     }
+
+    /**
+     * Whether [item] is new enough for a source that starts at [sinceMillis]: `0` for
+     * everything already there, or the time it was added for new files only.
+     */
+    fun isAfterStart(sinceMillis: Long, item: SourceItem): Boolean = sinceMillis <= 0 || item.addedAtMillis >= wholeSecond(sinceMillis)
+
+    /** Whether [item] was already in a folder when it was added at [createdAt]. */
+    fun wasAlreadyThere(createdAt: Long, item: SourceItem): Boolean = item.addedAtMillis < wholeSecond(createdAt)
+
+    /** MediaStore records whole seconds, so a photo taken in the second a folder was added still counts as new. */
+    private fun wholeSecond(millis: Long): Long = millis - millis % 1000
 
     private fun isWanted(item: SourceItem): Boolean {
         if (item.size == 0L) return false

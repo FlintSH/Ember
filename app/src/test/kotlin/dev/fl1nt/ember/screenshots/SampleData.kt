@@ -27,6 +27,9 @@ object SampleData {
     val now: Long = System.currentTimeMillis()
     private const val MINUTE = 60_000L
 
+    /** When the Camera album was added. A fixed date, because its folder screen shows it. */
+    private val cameraAdded: Long = java.time.Instant.parse("2026-10-20T12:00:00Z").toEpochMilli()
+
     val capabilities = Capabilities(Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.GRANTED, Access.NOT_IN_TOKEN)
 
     val account = Account(
@@ -86,7 +89,7 @@ object SampleData {
 
     val sources = listOf(
         SyncSourceEntity(id = 1, type = SourceType.MEDIA_ALBUM, name = "Screenshots", bucketId = "1", location = "Pictures/Screenshots", sinceMillis = 0, presetJson = UploadPreset().encode(), copyLink = true, notifyEach = true, createdAt = now, lastScanAt = now - 2 * MINUTE, pendingCount = 1),
-        SyncSourceEntity(id = 2, type = SourceType.MEDIA_ALBUM, name = "Camera", bucketId = "2", location = "DCIM/Camera", sinceMillis = now, presetJson = UploadPreset(visibility = Visibility.PRIVATE).encode(), createdAt = now, lastScanAt = now - 2 * MINUTE),
+        SyncSourceEntity(id = 2, type = SourceType.MEDIA_ALBUM, name = "Camera", bucketId = "2", location = "DCIM/Camera", sinceMillis = cameraAdded, presetJson = UploadPreset(visibility = Visibility.PRIVATE).encode(), createdAt = cameraAdded, lastScanAt = now - 2 * MINUTE),
         SyncSourceEntity(id = 3, type = SourceType.FOLDER, name = "Recordings", location = "Recordings", treeUri = "content://tree", sinceMillis = now, presetJson = UploadPreset().encode(), enabled = false, createdAt = now),
     )
 
