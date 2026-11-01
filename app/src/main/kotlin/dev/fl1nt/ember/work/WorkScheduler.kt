@@ -88,14 +88,9 @@ class WorkScheduler(private val context: Context, private val settings: Settings
      * Ember still respects "Wi-Fi only" because mobile data can cost money.
      */
     suspend fun syncNow(userInitiated: Boolean) {
-        val wifiOnly = settings.current().sync.wifiOnly
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-                    .build(),
-            )
+            .setConstraints(networkOnly(settings.current().sync.wifiOnly))
             .setInputData(
                 workDataOf(SyncWorker.KEY_REASON to if (userInitiated) SyncWorker.REASON_MANUAL else SyncWorker.REASON_CONTINUE),
             )
@@ -106,13 +101,15 @@ class WorkScheduler(private val context: Context, private val settings: Settings
 
     /**
      * Continues a large sync in a new job window, or rechecks files that were still
-     * being written. [settleRound] counts consecutive rechecks.
+     * being written. [settleRound] counts consecutive rechecks. A sync someone started
+     * continues as one, so it finishes while automatic sync is off, like [syncNow].
      */
-    fun continueSync(prefs: SyncPreferences, delay: Duration = Duration.ZERO, settleRound: Int = 0) {
+    fun continueSync(prefs: SyncPreferences, delay: Duration = Duration.ZERO, settleRound: Int = 0, userInitiated: Boolean = false) {
+        val reason = if (userInitiated) SyncWorker.REASON_MANUAL else SyncWorker.REASON_CONTINUE
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInitialDelay(delay)
-            .setConstraints(syncConstraints(prefs))
-            .setInputData(workDataOf(SyncWorker.KEY_REASON to SyncWorker.REASON_CONTINUE, SyncWorker.KEY_SETTLE_ROUND to settleRound))
+            .setConstraints(if (userInitiated) networkOnly(prefs.wifiOnly) else syncConstraints(prefs))
+            .setInputData(workDataOf(SyncWorker.KEY_REASON to reason, SyncWorker.KEY_SETTLE_ROUND to settleRound))
             .build()
         workManager.enqueueUniqueWork(SYNC_CONTINUE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
@@ -137,6 +134,10 @@ class WorkScheduler(private val context: Context, private val settings: Settings
     fun cancelAll() {
         listOf(UPLOADS, SYNC_PERIODIC, SYNC_MEDIA, SYNC_NOW, SYNC_CONTINUE).forEach(workManager::cancelUniqueWork)
     }
+
+    private fun networkOnly(wifiOnly: Boolean) = Constraints.Builder()
+        .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
+        .build()
 
     private fun syncConstraints(prefs: SyncPreferences) = Constraints.Builder()
         .setRequiredNetworkType(if (prefs.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)

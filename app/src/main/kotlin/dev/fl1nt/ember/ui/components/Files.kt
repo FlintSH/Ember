@@ -61,6 +61,13 @@ fun FileThumb(model: Any?, mimeType: String?, modifier: Modifier = Modifier, siz
 object Formats {
     fun size(context: Context, bytes: Long?): String = if (bytes == null || bytes < 0) "" else Formatter.formatShortFileSize(context, bytes)
 
+    /** A date and time with the year, such as "Oct 20, 2026, 6:40 PM". */
+    fun dateTime(context: Context, millis: Long): String = DateUtils.formatDateTime(
+        context,
+        millis,
+        DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR or DateUtils.FORMAT_ABBREV_MONTH or DateUtils.FORMAT_SHOW_TIME,
+    )
+
     fun relative(context: Context, millis: Long, now: Long = System.currentTimeMillis()): String =
         if (now - millis in 0 until DateUtils.MINUTE_IN_MILLIS) {
             context.getString(R.string.time_just_now)

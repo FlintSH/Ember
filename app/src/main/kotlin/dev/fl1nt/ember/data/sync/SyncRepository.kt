@@ -36,6 +36,8 @@ class SyncRepository(
     private val albums: MediaAlbums,
     private val settings: SettingsStore,
     private val scheduler: WorkScheduler,
+    /** Counts what's waiting in one folder again without uploading: [SyncEngine.recount]. */
+    private val recount: suspend (Long) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     fun observeSources(): Flow<List<SyncSourceEntity>> = db.sources().observeAll()
@@ -115,9 +117,29 @@ class SyncRepository(
         if (enabled) scheduler.syncNow(userInitiated = true)
     }
 
+    /**
+     * Switches a folder between everything in it and new files only, counted from
+     * when it was added. It only changes what happens to files Ember hasn't started:
+     * the ledger stays, so nothing that uploaded is sent again, and a file waiting to
+     * retry or resume still finishes.
+     */
+    suspend fun setUploadExisting(id: Long, uploadExisting: Boolean) {
+        val source = db.sources().get(id) ?: return
+        val since = if (uploadExisting) 0 else source.createdAt
+        if (source.sinceMillis == since) return
+        db.sources().setSince(id, since)
+        if (!source.enabled) return
+        // Asking for the older files counts as Sync now. Going back uploads nothing new, so
+        // counting again is enough, and it works while sync is off or waiting for Wi-Fi.
+        if (uploadExisting) scheduler.syncNow(userInitiated = true) else recount(id)
+    }
+
     /** Lets permanently failed files from this source upload again. */
     suspend fun retryFailures(id: Long) {
         db.ledger().clearFailures(id)
+        // Back in the queue they count as started, so they retry even when they're older
+        // than the start of a folder that went back to new files only.
+        db.uploads().requeueFailedSync(id, clock())
         scheduler.syncNow(userInitiated = true)
     }
 

@@ -72,6 +72,13 @@ interface UploadDao {
     @Query("DELETE FROM uploads WHERE syncSourceId = :sourceId AND status IN ('QUEUED', 'FAILED', 'CANCELLED')")
     suspend fun deleteUnfinishedForSource(sourceId: Long)
 
+    /** Puts a folder's failed files back in the queue, for "Try failed files again". */
+    @Query(
+        "UPDATE uploads SET status = 'QUEUED', attempts = 0, failureKind = NULL, failureMessage = NULL, completedAt = NULL, updatedAt = :now " +
+            "WHERE syncSourceId = :sourceId AND status = 'FAILED' AND (failureKind IS NULL OR failureKind != 'SOURCE_GONE')",
+    )
+    suspend fun requeueFailedSync(sourceId: Long, now: Long)
+
     @Query("SELECT id FROM uploads WHERE stagedPath IS NOT NULL")
     suspend fun stagedIds(): List<String>
 
@@ -113,6 +120,9 @@ interface SyncSourceDao {
 
     @Query("UPDATE sync_sources SET lastScanAt = :at, pendingCount = :pending, lastError = :error WHERE id = :id")
     suspend fun recordScan(id: Long, at: Long, pending: Int, error: String?)
+
+    @Query("UPDATE sync_sources SET sinceMillis = :since WHERE id = :id")
+    suspend fun setSince(id: Long, since: Long)
 
     @Query("DELETE FROM sync_sources WHERE id = :id")
     suspend fun delete(id: Long)

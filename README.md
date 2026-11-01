@@ -19,7 +19,7 @@ Ember talks only to the Flare server you connect it to. There are no accounts, a
 - 📤 **Upload from anywhere.** Choose **Upload to Flare** in any app's share menu. Ember uploads in the background, copies the link, and shows a notification with Copy and Share.
 - 📝 **Paste to Flare.** Select text in any app and choose **Paste to Flare**. In a text field, the link replaces your selection. A Quick Settings tile turns whatever is on your clipboard into a paste or short link.
 - 🔗 **Short links.** Share a link to Ember, or use **Shorten link**, to get a short link under your Flare domain.
-- 🔁 **Folder sync.** Pick photo albums the way Google Photos lists them, such as Camera and Screenshots, or any folder through the system picker. New files upload on their own, each one once. Screenshots can copy their link the moment they upload, like a desktop screenshot tool.
+- 🔁 **Folder sync.** Pick photo albums the way Google Photos lists them, such as Camera and Screenshots, or any folder through the system picker. New files upload on their own, each one once, and you can include what's already in a folder when you add it or later. Screenshots can copy their link the moment they upload, like a desktop screenshot tool.
 - 🗂️ **Your library.** Browse and search your Flare files, copy links, and see everything uploaded from this phone.
 - ⚙️ **Your defaults.** Choose visibility, expiration, folder, and upload profile for every upload, per synced folder, or per share.
 - 🔒 **Careful with your token.** Ember keeps it encrypted with the Android Keystore, never backs it up, and only needs the scopes you choose.

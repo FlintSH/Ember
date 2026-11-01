@@ -6,10 +6,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
 import dev.fl1nt.ember.api.Expiration
 import dev.fl1nt.ember.api.Visibility
 import dev.fl1nt.ember.data.account.AccountProblem
@@ -46,6 +51,8 @@ import dev.fl1nt.ember.ui.share.SharedFile
 import dev.fl1nt.ember.ui.share.TextAction
 import dev.fl1nt.ember.ui.sync.AddSourceScreen
 import dev.fl1nt.ember.ui.sync.AddSourceState
+import dev.fl1nt.ember.ui.sync.SourceDetailScreen
+import dev.fl1nt.ember.ui.sync.SourceDetailState
 import dev.fl1nt.ember.ui.sync.SourceOptions
 import dev.fl1nt.ember.ui.sync.SyncScreen
 import dev.fl1nt.ember.ui.sync.SyncState
@@ -72,12 +79,23 @@ class ScreenshotTest {
     val compose = createComposeRule()
 
     private fun snap(name: String, mode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
-        compose.setContent {
-            EmberTheme(mode) {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
-            }
-        }
+        show(mode, content)
         compose.onRoot().captureRoboImage("src/test/screenshots/$name.png")
+    }
+
+    /** Like [snap], after [act], and with every window, so a dialog it opens shows. */
+    @OptIn(ExperimentalRoborazziApi::class)
+    private fun snapAfter(name: String, act: () -> Unit, content: @Composable () -> Unit) {
+        show(ThemeMode.DARK, content)
+        act()
+        compose.waitForIdle()
+        captureScreenRoboImage("src/test/screenshots/$name.png")
+    }
+
+    private fun show(mode: ThemeMode, content: @Composable () -> Unit) = compose.setContent {
+        EmberTheme(mode) {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
+        }
     }
 
     private val home = HomeState(
@@ -169,6 +187,31 @@ class ScreenshotTest {
             ),
             {}, {}, {}, {}, {}, {},
         )
+    }
+
+    /** The Camera album, added with new files only. */
+    private val camera = SourceDetailState(
+        source = SampleData.sources[1],
+        counts = SampleData.summaries[1].counts,
+        recent = listOf(SampleData.uploads[2]),
+        folders = FolderChoices.Loaded(SampleData.folders),
+    )
+
+    @Test
+    fun sourceDetail() = snap("source-detail") { SourceDetailScreen(camera, {}, {}, {}, {}, {}, {}) }
+
+    @Test
+    fun sourceDetailUploadExisting() = snapAfter(
+        "source-detail-upload-existing",
+        act = {
+            compose.onNodeWithText("Everything here").performClick()
+            compose.onNodeWithText("Upload them").assertIsDisplayed()
+        },
+    ) { SourceDetailScreen(camera, {}, {}, {}, {}, {}, {}) }
+
+    @Test
+    fun sourceDetailEverything() = snap("source-detail-everything") {
+        SourceDetailScreen(camera.copy(source = camera.source!!.copy(sinceMillis = 0, pendingCount = 312)), {}, {}, {}, {}, {}, {})
     }
 
     @Test

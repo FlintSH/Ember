@@ -70,7 +70,7 @@ class AppContainer(val application: Application) {
     val uploader = Uploader(app, database, staging, cipher, accounts, settings, notifier)
     val uploads = UploadRepository(app, database, staging, cipher, scheduler)
     val links = LinksRepository(database, connection, accounts)
-    val sync = SyncRepository(database, app.contentResolver, MediaAlbums(app.contentResolver), settings, scheduler)
+    val sync = SyncRepository(database, app.contentResolver, MediaAlbums(app.contentResolver), settings, scheduler, recount = { syncEngine.recount(it) })
     val syncEngine = SyncEngine(
         db = database,
         scanner = DefaultSourceScanner(MediaStoreScanner(app.contentResolver), DocumentTreeScanner(app.contentResolver)),

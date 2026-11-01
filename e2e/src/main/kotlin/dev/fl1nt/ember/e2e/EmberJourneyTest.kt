@@ -236,10 +236,11 @@ class EmberJourneyTest {
     }
 
     @Test
-    fun step5_syncsANewAlbum() {
-        val names = listOf("e2e-sync-$run-1.png", "e2e-sync-$run-2.png")
-        Photos.create(context, album, names[0], Color.rgb(255, 195, 1))
-        Photos.create(context, album, names[1], Color.rgb(255, 43, 1))
+    fun step5_syncsANewAlbumThenWhatWasAlreadyThere() {
+        val before = listOf("e2e-sync-$run-1.png", "e2e-sync-$run-2.png")
+        val after = "e2e-sync-$run-3.png"
+        Photos.create(context, album, before[0], Color.rgb(255, 195, 1))
+        Photos.create(context, album, before[1], Color.rgb(255, 43, 1))
 
         launchEmber()
         waitFor(By.text("Sync")).click()
@@ -248,13 +249,28 @@ class EmberJourneyTest {
         shots.take("sync-albums")
         device.findObject(By.text(album)).click()
 
-        waitFor(By.text(Pattern.compile("All 2 items"))).click()
+        // New files only is the default, so the two photos already there stay on the phone.
+        waitFor(By.text("All 2 items"))
         shots.take("sync-options")
         scrollTo(By.text("Start syncing")).click()
+        waitFor(By.text("0 uploaded"))
 
-        waitUntil(description = "Flare has both synced photos") { api.files("e2e-sync-$run").keys.containsAll(names) }
-        waitFor(By.text("2 uploaded"), timeout = 30_000)
+        // A photo taken afterwards uploads on its own.
+        Photos.create(context, album, after, Color.rgb(255, 120, 1))
+        waitUntil(description = "Flare has the photo taken after adding the album") { api.files("e2e-sync-$run").containsKey(after) }
+        assertThat(api.fileNames("e2e-sync-$run")).containsExactly(after)
+        waitFor(By.text("1 uploaded"), timeout = 30_000)
         shots.take("sync-source")
+
+        // Switching the album to everything uploads the older photos, and not the new one again.
+        scrollTo(By.text("Everything here")).click()
+        waitFor(By.text("Upload them"))
+        shots.take("sync-upload-existing")
+        device.findObject(By.text("Upload them")).click()
+        waitUntil(description = "Flare has the photos that were already in the album") { api.files("e2e-sync-$run").keys.containsAll(before) }
+        waitFor(By.text("3 uploaded"), timeout = 30_000)
+        assertThat(api.fileNames("e2e-sync-$run")).containsExactlyElementsIn(before + after)
+        shots.take("sync-source-everything")
     }
 
     @Test

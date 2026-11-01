@@ -102,6 +102,22 @@ class SyncEngine(
         }
     }
 
+    /**
+     * Counts what's waiting in one source again without uploading, such as after it went
+     * back to new files only, even while sync is off or waiting for Wi-Fi. A run in
+     * progress does this as it goes, so this doesn't wait for one.
+     */
+    suspend fun recount(sourceId: Long) {
+        if (!mutex.tryLock()) return
+        try {
+            recover()
+            val source = db.sources().get(sourceId)?.takeIf { it.enabled } ?: return
+            planSource(source, clock())
+        } finally {
+            mutex.unlock()
+        }
+    }
+
     private suspend fun recover() {
         db.uploads().requeueInterruptedSync()
         db.uploads().deleteOrphanedSync()
@@ -133,28 +149,30 @@ class SyncEngine(
         val work = ArrayList<Pair<SyncSourceEntity, SourceItem>>()
         val remaining = HashMap<Long, Int>()
         val settlingBySource = HashMap<Long, Int>()
+        val startedBySource = HashMap<Long, Set<String>>()
         val retrying = HashSet<Pair<Long, String>>()
         for (source in sources) {
-            val items = scan(source, now) ?: continue
-            // A queued file that's no longer in the folder can never upload.
-            val present = items.mapTo(HashSet()) { it.key }
-            val queued = db.uploads().queuedForSource(source.id)
-            queued.filter { it.syncItemKey !in present }.forEach { db.uploads().delete(it.id) }
-            queued.filter { it.attempts > 0 }.forEach { row -> row.syncItemKey?.let { retrying += source.id to it } }
-
-            val ledger = db.ledger().forSource(source.id).associateBy { it.itemKey }
-            val plan = SyncPlanner.plan(source.type, source.sinceMillis, items, ledger, now, SyncPlanner.settleMillis(source.type, sdk))
-            remaining[source.id] = plan.toUpload.size
-            settlingBySource[source.id] = plan.settling
-            db.sources().recordScan(source.id, now, plan.toUpload.size + plan.settling, null)
-            plan.toUpload.forEach { work += source to it }
+            val planned = planSource(source, now) ?: continue
+            planned.retrying.forEach { retrying += source.id to it }
+            startedBySource[source.id] = planned.started
+            remaining[source.id] = planned.plan.toUpload.size
+            settlingBySource[source.id] = planned.plan.settling
+            planned.plan.toUpload.forEach { work += source to it }
         }
         // Files that failed before go after fresh ones, so one stubborn file doesn't hold up the rest.
-        work.sortBy { (source, item) -> (source.id to item.key) in retrying }
+        // Within each, new files go before what was already in a folder when it was added, so a
+        // backlog doesn't hold up new photos and screenshots.
+        work.sortWith(
+            compareBy<Pair<SyncSourceEntity, SourceItem>>(
+                { (source, item) -> (source.id to item.key) in retrying },
+                { (source, item) -> SyncPlanner.wasAlreadyThere(source.createdAt, item) },
+            ),
+        )
 
         val defaults = prefs.defaults
         var uploaded = 0
         var failed = 0
+        var uploadedQuietly = 0
         var waiting = 0
         var lastWaitReason: String? = null
         var failingInARow = 0
@@ -172,19 +190,27 @@ class SyncEngine(
             }
             if (prefs.sync.enabled && !settings.current().sync.enabled) return SyncRun.Disabled
 
-            val status = SyncProgress(index, work.size, item.name)
-            _progress.value = status
-            onProgress(status)
-
             val pendingAfter = { left: Int -> left + (settlingBySource[source.id] ?: 0) }
             val left = (remaining.getValue(source.id) - 1).coerceAtLeast(0)
             remaining[source.id] = left
+            // Switched to new files only since the scan. Older files Ember hasn't started stay on the phone.
+            if (!SyncPlanner.isAfterStart(source.sinceMillis, item) && item.key !in startedBySource.getValue(source.id)) {
+                db.sources().recordScan(source.id, clock(), pendingAfter(left), null)
+                return@forEachIndexed
+            }
+
+            val status = SyncProgress(index, work.size, item.name)
+            _progress.value = status
+            onProgress(status)
             val outcome = uploadItem(source, item, defaults, client)
             if (outcome !is Uploader.Outcome.Failed || outcome.failure.kind != FailureKind.TRANSIENT) failingInARow = 0
             if (outcome !is Uploader.Outcome.Failed || outcome.failure.kind != FailureKind.SOURCE_GONE) goneInARow.remove(source.id)
             when (outcome) {
                 null -> Unit
-                is Uploader.Outcome.Uploaded -> uploaded++
+                is Uploader.Outcome.Uploaded -> {
+                    uploaded++
+                    if (!outcome.upload.notify) uploadedQuietly++
+                }
                 is Uploader.Outcome.Failed -> when (outcome.failure.kind) {
                     FailureKind.AUTH -> {
                         accounts.reportProblem(AccountProblem.TOKEN_REJECTED)
@@ -196,7 +222,7 @@ class SyncEngine(
                         // Out of reach, nothing else would get through either; otherwise it
                         // may be about this file, so carry on unless several fail in a row.
                         if (outcome.failure.unreachable || ++failingInARow >= MAX_FAILING_IN_A_ROW) {
-                            notifySummary(sources, uploaded, failed)
+                            notifySummary(sources, uploaded, failed, uploadedQuietly)
                             return SyncRun.Retry(uploaded, outcome.failure.message)
                         }
                         waiting++
@@ -241,14 +267,40 @@ class SyncEngine(
             }
             if (source.id !in stopped) db.sources().recordScan(source.id, clock(), pendingAfter(remaining.getValue(source.id)), null)
         }
-        notifySummary(sources, uploaded, failed)
+        notifySummary(sources, uploaded, failed, uploadedQuietly)
         // Files that are waiting get another try soon, with WorkManager's backoff.
         lastWaitReason?.let { if (waiting > 0) return SyncRun.Retry(uploaded, it) }
         return SyncRun.Completed(uploaded, failed, settlingBySource.values.sum())
     }
 
-    private fun notifySummary(sources: List<SyncSourceEntity>, uploaded: Int, failed: Int) {
-        if (uploaded + failed > 0 && sources.any { !it.notifyEach }) notifier.syncSummary(uploaded, failed)
+    /** One notification for the run, unless every file already had its own. */
+    private fun notifySummary(sources: List<SyncSourceEntity>, uploaded: Int, failed: Int, uploadedQuietly: Int) {
+        if (uploaded + failed > 0 && (sources.any { !it.notifyEach } || uploadedQuietly > 0)) notifier.syncSummary(uploaded, failed)
+    }
+
+    /** What one source should upload, and which of its files Ember already started. */
+    private class SourcePlan(val plan: SyncPlan, val started: Set<String>, val retrying: Set<String>)
+
+    /**
+     * Scans one source, plans it, and records what's waiting. Returns null when it
+     * can't be listed, after recording why.
+     */
+    private suspend fun planSource(source: SyncSourceEntity, now: Long): SourcePlan? {
+        val queued = db.uploads().queuedForSource(source.id)
+        // Files Ember already started finish even if they're older than the folder's start,
+        // so while any wait, look at the whole folder.
+        val items = scan(if (queued.isEmpty()) source else source.copy(sinceMillis = 0), now) ?: return null
+        // A queued file that's no longer in the folder can never upload.
+        val present = items.mapTo(HashSet()) { it.key }
+        val (waiting, gone) = queued.partition { it.syncItemKey in present }
+        gone.forEach { db.uploads().delete(it.id) }
+
+        val started = waiting.mapNotNullTo(HashSet()) { it.syncItemKey }
+        val retrying = waiting.filter { it.attempts > 0 }.mapNotNullTo(HashSet()) { it.syncItemKey }
+        val ledger = db.ledger().forSource(source.id).associateBy { it.itemKey }
+        val plan = SyncPlanner.plan(source.type, source.sinceMillis, items, ledger, now, SyncPlanner.settleMillis(source.type, sdk), started)
+        db.sources().recordScan(source.id, now, plan.toUpload.size + plan.settling, null)
+        return SourcePlan(plan, started, retrying)
     }
 
     /** Lists a source's files, or records why it couldn't and returns null. One bad folder doesn't stop the rest. */
@@ -310,6 +362,9 @@ class SyncEngine(
             }
             null -> {
                 val now = clock()
+                // What was already in the folder uploads quietly: copying every link or notifying for
+                // every file would flood the clipboard and the notification shade. The summary counts them.
+                val quiet = SyncPlanner.wasAlreadyThere(source.createdAt, item)
                 UploadEntity(
                     id = UUID.randomUUID().toString(),
                     batchId = null,
@@ -326,8 +381,8 @@ class SyncEngine(
                     presetJson = preset,
                     sealedPassword = null,
                     status = UploadStatus.QUEUED,
-                    copyLink = source.copyLink,
-                    notify = source.notifyEach,
+                    copyLink = source.copyLink && !quiet,
+                    notify = source.notifyEach && !quiet,
                     createdAt = now,
                     updatedAt = now,
                 ).also { db.uploads().insert(listOf(it)) }

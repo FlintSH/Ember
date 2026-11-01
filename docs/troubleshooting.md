@@ -41,7 +41,7 @@
 5. Some phones stop background apps aggressively. In Android's settings for Ember, set battery use to **Unrestricted**. [Don't kill my app](https://dontkillmyapp.com) has steps for many manufacturers.
 6. Choose **Sync now** to check immediately.
 
-**An old file didn't upload.** A folder added with **New files only** ignores files that were there before. For folders from the file picker, Ember goes by modified time, which copying can preserve. Remove the folder and add it with **Everything here**.
+**An old file didn't upload.** A folder set to **New files only** ignores files that were there before you added it. For folders from the file picker, Ember goes by modified time, which copying can preserve. Open the folder and choose **Everything here** under **Which files upload**.
 
 **A failed file.** Open the folder, fix the cause shown on the file, and choose **Try failed files again**.
 

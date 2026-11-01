@@ -237,6 +237,20 @@ class SourceDetailViewModel(private val container: AppContainer, private val id:
 
     fun updatePreset(transform: (UploadPreset) -> UploadPreset) = update { it.copy(presetJson = transform(UploadPreset.decode(it.presetJson)).encode()) }
 
+    /** Saves the options shared with "Add a folder". Which files upload has [setUploadExisting]. */
+    fun updateOptions(options: SourceOptions) = update {
+        it.copy(
+            presetJson = options.preset.encode(),
+            copyLink = options.copyLink,
+            notifyEach = options.notifyEach,
+            includeImages = options.includeImages,
+            includeVideos = options.includeVideos,
+            includeSubfolders = options.includeSubfolders,
+        )
+    }
+
+    fun setUploadExisting(uploadExisting: Boolean) = viewModelScope.launch { container.sync.setUploadExisting(id, uploadExisting) }
+
     fun retryFailures() = viewModelScope.launch { container.sync.retryFailures(id) }
 
     fun remove() = viewModelScope.launch {

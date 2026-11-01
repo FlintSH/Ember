@@ -35,6 +35,35 @@ class SyncPlannerTest {
     }
 
     @Test
+    fun `including what was already there plans older files but not ones already uploaded`() {
+        val since = now - 30_000
+        val items = listOf(item("old", added = since - 1), item("new", added = since + 1, modified = since + 1))
+        val ledger = mapOf(ledger("new", LedgerState.UPLOADED))
+
+        assertThat(SyncPlanner.plan(SourceType.MEDIA_ALBUM, since, items, ledger, now).toUpload).isEmpty()
+        assertThat(SyncPlanner.plan(SourceType.MEDIA_ALBUM, 0, items, ledger, now).toUpload.map { it.key }).containsExactly("old")
+    }
+
+    @Test
+    fun `files Ember already started stay in the plan when only new files sync`() {
+        val since = now - 30_000
+        val items = listOf(item("waiting", added = since - 60_000), item("untouched", added = since - 60_000))
+        val plan = SyncPlanner.plan(SourceType.FOLDER, since, items, emptyMap(), now, started = setOf("waiting"))
+        assertThat(plan.toUpload.map { it.key }).containsExactly("waiting")
+    }
+
+    @Test
+    fun `a photo added in the second the folder was added counts as new`() {
+        // MediaStore keeps whole seconds, and the folder was added 700 ms into one.
+        val second = (now - 60_000) / 1000 * 1000
+        val since = second + 700
+        val photo = item("photo", added = second)
+        assertThat(SyncPlanner.plan(SourceType.MEDIA_ALBUM, since, listOf(photo), emptyMap(), now).toUpload).containsExactly(photo)
+        assertThat(SyncPlanner.wasAlreadyThere(since, photo)).isFalse()
+        assertThat(SyncPlanner.wasAlreadyThere(since, item("older", added = second - 1))).isTrue()
+    }
+
+    @Test
     fun `never repeats uploaded or permanently failed files`() {
         val plan = SyncPlanner.plan(
             SourceType.FOLDER,
