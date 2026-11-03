@@ -6,7 +6,7 @@ Ember holds a credential for your Flare server and can read files you choose. Th
 
 Ember only talks to the Flare server you connect it to. It has no analytics, crash reporting, ads, or accounts of its own, and contacts no other service.
 
-Requests carry your token in an `Authorization: Bearer` header, never in a URL, and a `User-Agent` such as `Ember/0.1.0 (Android 16; SDK 36)`.
+Requests carry your token in an `Authorization: Bearer` header, never in a URL, and a `User-Agent` such as `Ember/0.2.0 (Android 16; SDK 36)`.
 
 ## Your token
 
